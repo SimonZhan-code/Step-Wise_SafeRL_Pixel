@@ -1,6 +1,7 @@
 cloudpickle
 crafter
 gym==0.19.0
+gymnasium
 jax
 jaxlib
 numpy
@@ -9,3 +10,4 @@ rich
 ruamel.yaml
 tensorflow-cpu
 tensorflow_probability
+safety-gymnasium
