@@ -12,7 +12,7 @@ def main(env_name):
     config = embodied.Config(dreamerv3.configs['defaults'])
     config = config.update(dreamerv3.configs['medium'])
     config = config.update({
-        'logdir': '~/logdir/run1',
+        'logdir': '~/logdir/safety_gym',
         'run.train_ratio': 64,
         'run.log_every': 30,  # Seconds
         'batch_size': 16,
