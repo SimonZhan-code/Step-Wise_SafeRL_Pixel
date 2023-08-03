@@ -15,9 +15,11 @@ This repo implements the Dreamer algorithm from [Dream to Control: Learning Beha
 ## Installation
 To install all dependencies with Anaconda run using the following commands. 
 
-`conda env create -f conda_env.yml` 
+`conda create -n CBF_WM python=3.8 ` 
 
-`source activate dreamer` 
+`source activate CBF_WM` 
+
+`pip install -r requirements.txt`
 
 ## Training (e.g. DMC walker-walk)
 ```bash
