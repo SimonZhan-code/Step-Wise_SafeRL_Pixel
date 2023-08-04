@@ -327,6 +327,14 @@ def Env(env, symbolic, seed, max_episode_length, action_repeat, bit_depth, obser
         return ControlSuiteEnv(env, symbolic, seed, max_episode_length, action_repeat, bit_depth)
     elif env in SAFETY_GYM_ENVS:
         rendered = observation_type in ['rgb_image', 'binary_image']
+        env = make_safety_gym_env(env, max_episode_length, rendered)
+        render_kwargs = {'mode': 'vision'}
+        env = ActionRepeat(env, action_repeat, True)  # sum costs in suite is safety_gym
+        env = RescaleAction(env, -1.0, 1.0)
+        if rendered:
+            env = RenderedObservation(env, observation_type, (64, 64), render_kwargs, None)
+        env.seed(seed)
+        return env
 
 
 # Wrapper for batching environments together

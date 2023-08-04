@@ -1,0 +1,4 @@
+gym~=0.18.0
+xmltodict~=0.12.0
+xmltodict~=0.12.0
+mujoco-py<2.2,>=2.1
