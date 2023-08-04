@@ -1,7 +1,6 @@
 import argparse
 import os
-import safety_gym
-import gym
+
 import numpy as np
 import torch
 from tensorboardX import SummaryWriter
@@ -11,7 +10,7 @@ from torch.distributions.kl import kl_divergence
 from torch.nn import functional as F
 from torchvision.utils import make_grid, save_image
 from tqdm import tqdm
-# Add Safety Gym environment inside
+
 from env import CONTROL_SUITE_ENVS, GYM_ENVS, SAFETY_GYM_ENVS, Env, EnvBatcher
 from memory import ExperienceReplay
 from models import ActorModel, Encoder, ObservationModel, RewardModel, TransitionModel, ValueModel, bottle
@@ -31,6 +30,7 @@ parser.add_argument(
     choices=GYM_ENVS + CONTROL_SUITE_ENVS + SAFETY_GYM_ENVS,
     help='Gym/Control Suite environment',
 )
+parser.add_argument('--observation_type', default='rgb_image')
 parser.add_argument('--symbolic-env', action='store_true', help='Symbolic features')
 parser.add_argument('--max-episode-length', type=int, default=1000, metavar='T', help='Max episode length')
 parser.add_argument(
@@ -105,6 +105,7 @@ parser.add_argument(
 parser.add_argument('--adam-epsilon', type=float, default=1e-7, metavar='ε', help='Adam optimizer epsilon value')
 # Note that original has a linear learning rate decay, but it seems unlikely that this makes a significant difference
 parser.add_argument('--grad-clip-norm', type=float, default=100.0, metavar='C', help='Gradient clipping norm')
+
 parser.add_argument('--planning-horizon', type=int, default=15, metavar='H', help='Planning horizon distance')
 parser.add_argument('--discount', type=float, default=0.99, metavar='H', help='Planning horizon distance')
 parser.add_argument('--disclam', type=float, default=0.95, metavar='H', help='discount rate to compute return')
@@ -158,7 +159,7 @@ writer = SummaryWriter(summary_name.format(args.env, args.id))
 print("writer is ready")
 
 # Initialise training environment and experience replay memory
-env = Env(args.env, args.symbolic_env, args.seed, args.max_episode_length, args.action_repeat, args.bit_depth)
+env = Env(args.env, args.symbolic_env, args.seed, args.max_episode_length, args.action_repeat, args.bit_depth, args.observation_type)
 print("environment is loaded")
 if args.experience_replay != '' and os.path.exists(args.experience_replay):
     D = torch.load(args.experience_replay)
