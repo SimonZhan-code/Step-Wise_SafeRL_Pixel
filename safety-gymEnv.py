@@ -7,6 +7,17 @@ class SafetyGymEnv:
         self.max_episode_length = max_episode_length
         self.action_repeat = action_repeat
         self.bit_depth = bit_depth
+        self._env.unwrapped.vision_size = (64, 64)
+        self._env.unwrapped.observe_vision = True
+        self._env.unwrapped.vision_render = False
+        # obs_vision_swap = self._env.unwrapped.obs_vision
+
+    def render(self):
+        image = Image.fromarray(np.array(self._env.unwrapped.obs_vision() * 255, dtype=np.uint8,
+                                             copy=False))
+        image = np.asarray(ImageOps.flip(image))
+        # image = Image.fromarray(image)
+        return image
 
     def reset(self):
         self.t = 0  # Reset internal timer
@@ -14,7 +25,7 @@ class SafetyGymEnv:
         if self.symbolic:
             return torch.tensor(state, dtype=torch.float32).unsqueeze(dim=0)
         else:
-            return _images_to_observation(self._env.unwrapped.render(mode='rgb_array', camera_id=3), self.bit_depth)
+            return _images_to_observation(self.render(), self.bit_depth)
 
     def step(self, action):
         action = action.detach().numpy()
@@ -29,11 +40,9 @@ class SafetyGymEnv:
         if self.symbolic:
             observation = torch.tensor(state, dtype=torch.float32).unsqueeze(dim=0)
         else:
-            observation = _images_to_observation(self._env.render(mode='rgb_array'), self.bit_depth)
+            observation = _images_to_observation(self.render(), self.bit_depth)
         return observation, reward, done
 
-    def render(self):
-        self._env.render()
 
     def close(self):
         self._env.close()
@@ -49,3 +58,5 @@ class SafetyGymEnv:
     # Sample an action randomly from a uniform distribution over all valid actions
     def sample_random_action(self):
         return torch.from_numpy(self._env.action_space.sample())
+
+
