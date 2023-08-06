@@ -347,7 +347,7 @@ class SafetyGymEnv:
         image = Image.fromarray(np.array(self._env.unwrapped.obs_vision() * 255, dtype=np.uint8,
                                              copy=False))
         image = np.asarray(ImageOps.flip(image))
-        image = Image.fromarray(image)
+        # image = Image.fromarray(image)
         return image
 
     def reset(self):
