@@ -331,9 +331,7 @@ if args.test:
 
 
 # Training (and testing)
-for episode in tqdm(
-    range(metrics['episodes'][-1] + 1, args.episodes + 1), total=args.episodes, initial=metrics['episodes'][-1] + 1
-):
+for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total=args.episodes, initial=metrics['episodes'][-1] + 1):
     # Model fitting
     losses = []
     model_modules = transition_model.modules + encoder.modules + observation_model.modules + reward_model.modules
