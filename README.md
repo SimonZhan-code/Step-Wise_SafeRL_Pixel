@@ -15,15 +15,13 @@ This repo implements the Dreamer algorithm from [Dream to Control: Learning Beha
 ## Installation
 To install all dependencies with Anaconda run using the following commands. 
 
-`conda create -n CBF_WM python=3.8 ` 
+`conda env create -f conda_env.yml` 
 
-`source activate CBF_WM` 
-
-`pip install -r requirements.txt`
+`source activate dreamer` 
 
 ## Training (e.g. DMC walker-walk)
 ```bash
-python main.py --algo dreamer --env walker-walk --action-repeat 2 --id name-of-experiement
+python main.py --algo planet --env Safexp-PointGoal0-v0 --action-repeat 2 --id MPC-Safexp-PointGoal0-v0-0
 ```
 
 For best performance with DeepMind Control Suite, try setting environment variable `MUJOCO_GL=egl` (see instructions and details [here](https://github.com/deepmind/dm_control#rendering)).

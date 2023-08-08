@@ -150,8 +150,8 @@ metrics = {
     'observation_loss': [],
     'reward_loss': [],
     'kl_loss': [],
-    'actor_loss': [],
-    'value_loss': [],
+    # 'actor_loss': [],
+    # 'value_loss': [],
 }
 
 summary_name = results_dir + "/{}_{}_log"
@@ -466,55 +466,58 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         nn.utils.clip_grad_norm_(param_list, args.grad_clip_norm, norm_type=2)
         model_optimizer.step()
 
-        # Dreamer implementation: actor loss calculation and optimization
-        with torch.no_grad():
-            actor_states = posterior_states.detach()
-            actor_beliefs = beliefs.detach()
-        with FreezeParameters(model_modules):
-            imagination_traj = imagine_ahead(
-                actor_states, actor_beliefs, actor_model, transition_model, args.planning_horizon
-            )
-        imged_beliefs, imged_prior_states, imged_prior_means, imged_prior_std_devs = imagination_traj
-        with FreezeParameters(model_modules + value_model.modules):
-            imged_reward = bottle(reward_model, (imged_beliefs, imged_prior_states))
-            value_pred = bottle(value_model, (imged_beliefs, imged_prior_states))
-        returns = lambda_return(
-            imged_reward, value_pred, bootstrap=value_pred[-1], discount=args.discount, lambda_=args.disclam
-        )
-        actor_loss = -torch.mean(returns)
-        # Update model parameters
-        actor_optimizer.zero_grad()
-        actor_loss.backward()
-        nn.utils.clip_grad_norm_(actor_model.parameters(), args.grad_clip_norm, norm_type=2)
-        actor_optimizer.step()
+        # # Dreamer implementation: actor loss calculation and optimization
+        # with torch.no_grad():
+        #     actor_states = posterior_states.detach()
+        #     actor_beliefs = beliefs.detach()
+        # with FreezeParameters(model_modules):
+        #     imagination_traj = imagine_ahead(
+        #         actor_states, actor_beliefs, actor_model, transition_model, args.planning_horizon
+        #     )
+        # imged_beliefs, imged_prior_states, imged_prior_means, imged_prior_std_devs = imagination_traj
+        # with FreezeParameters(model_modules + value_model.modules):
+        #     imged_reward = bottle(reward_model, (imged_beliefs, imged_prior_states))
+        #     value_pred = bottle(value_model, (imged_beliefs, imged_prior_states))
+        # returns = lambda_return(
+        #     imged_reward, value_pred, bootstrap=value_pred[-1], discount=args.discount, lambda_=args.disclam
+        # )
+        # actor_loss = -torch.mean(returns)
+        # # Update model parameters
+        # actor_optimizer.zero_grad()
+        # actor_loss.backward()
+        # nn.utils.clip_grad_norm_(actor_model.parameters(), args.grad_clip_norm, norm_type=2)
+        # actor_optimizer.step()
 
-        # Dreamer implementation: value loss calculation and optimization
-        with torch.no_grad():
-            value_beliefs = imged_beliefs.detach()
-            value_prior_states = imged_prior_states.detach()
-            target_return = returns.detach()
-        value_dist = Normal(
-            bottle(value_model, (value_beliefs, value_prior_states)), 1
-        )  # detach the input tensor from the transition network.
-        value_loss = -value_dist.log_prob(target_return).mean(dim=(0, 1))
-        # Update model parameters
-        value_optimizer.zero_grad()
-        value_loss.backward()
-        nn.utils.clip_grad_norm_(value_model.parameters(), args.grad_clip_norm, norm_type=2)
-        value_optimizer.step()
+        # # Dreamer implementation: value loss calculation and optimization
+        # with torch.no_grad():
+        #     value_beliefs = imged_beliefs.detach()
+        #     value_prior_states = imged_prior_states.detach()
+        #     target_return = returns.detach()
+        # value_dist = Normal(
+        #     bottle(value_model, (value_beliefs, value_prior_states)), 1
+        # )  # detach the input tensor from the transition network.
+        # value_loss = -value_dist.log_prob(target_return).mean(dim=(0, 1))
+        # # Update model parameters
+        # value_optimizer.zero_grad()
+        # value_loss.backward()
+        # nn.utils.clip_grad_norm_(value_model.parameters(), args.grad_clip_norm, norm_type=2)
+        # value_optimizer.step()
 
         # # Store (0) observation loss (1) reward loss (2) KL loss (3) actor loss (4) value loss
         losses.append(
-            [observation_loss.item(), reward_loss.item(), kl_loss.item(), actor_loss.item(), value_loss.item()]
+            [observation_loss.item(), reward_loss.item(), kl_loss.item()]
         )
+        # losses.append(
+        #     [observation_loss.item(), reward_loss.item(), kl_loss.item(), actor_loss.item(), value_loss.item()]
+        # )
 
     # Update and plot loss metrics
     losses = tuple(zip(*losses))
     metrics['observation_loss'].append(losses[0])
     metrics['reward_loss'].append(losses[1])
     metrics['kl_loss'].append(losses[2])
-    metrics['actor_loss'].append(losses[3])
-    metrics['value_loss'].append(losses[4])
+    # metrics['actor_loss'].append(losses[3])
+    # metrics['value_loss'].append(losses[4])
     lineplot(
         metrics['episodes'][-len(metrics['observation_loss']) :],
         metrics['observation_loss'],
@@ -523,8 +526,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     )
     lineplot(metrics['episodes'][-len(metrics['reward_loss']) :], metrics['reward_loss'], 'reward_loss', results_dir)
     lineplot(metrics['episodes'][-len(metrics['kl_loss']) :], metrics['kl_loss'], 'kl_loss', results_dir)
-    lineplot(metrics['episodes'][-len(metrics['actor_loss']) :], metrics['actor_loss'], 'actor_loss', results_dir)
-    lineplot(metrics['episodes'][-len(metrics['value_loss']) :], metrics['value_loss'], 'value_loss', results_dir)
+    # lineplot(metrics['episodes'][-len(metrics['actor_loss']) :], metrics['actor_loss'], 'actor_loss', results_dir)
+    # lineplot(metrics['episodes'][-len(metrics['value_loss']) :], metrics['value_loss'], 'value_loss', results_dir)
 
     # Data collection
     print("Data collection")
@@ -553,8 +556,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
             D.append(observation, action.cpu(), reward, done)
             total_reward += reward
             observation = next_observation
-            if args.render:
-                env.render()
+            # if args.render:
+            #     env.render()
             if done:
                 pbar.close()
                 break
@@ -578,8 +581,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         observation_model.eval()
         reward_model.eval()
         encoder.eval()
-        actor_model.eval()
-        value_model.eval()
+        # actor_model.eval()
+        # value_model.eval()
         # Initialise parallelised test environments
         test_envs = EnvBatcher(
             Env,
@@ -645,8 +648,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         observation_model.train()
         reward_model.train()
         encoder.train()
-        actor_model.train()
-        value_model.train()
+        # actor_model.train()
+        # value_model.train()
         # Close test environments
         test_envs.close()
 
@@ -655,8 +658,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     writer.add_scalar("observation_loss", metrics['observation_loss'][0][-1], metrics['steps'][-1])
     writer.add_scalar("reward_loss", metrics['reward_loss'][0][-1], metrics['steps'][-1])
     writer.add_scalar("kl_loss", metrics['kl_loss'][0][-1], metrics['steps'][-1])
-    writer.add_scalar("actor_loss", metrics['actor_loss'][0][-1], metrics['steps'][-1])
-    writer.add_scalar("value_loss", metrics['value_loss'][0][-1], metrics['steps'][-1])
+    # writer.add_scalar("actor_loss", metrics['actor_loss'][0][-1], metrics['steps'][-1])
+    # writer.add_scalar("value_loss", metrics['value_loss'][0][-1], metrics['steps'][-1])
     print(
         "episodes: {}, total_steps: {}, train_reward: {} ".format(
             metrics['episodes'][-1], metrics['steps'][-1], metrics['train_rewards'][-1]
@@ -674,8 +677,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 'actor_model': actor_model.state_dict(),
                 'value_model': value_model.state_dict(),
                 'model_optimizer': model_optimizer.state_dict(),
-                'actor_optimizer': actor_optimizer.state_dict(),
-                'value_optimizer': value_optimizer.state_dict(),
+                # 'actor_optimizer': actor_optimizer.state_dict(),
+                # 'value_optimizer': value_optimizer.state_dict(),
             },
             os.path.join(results_dir, 'models_%d.pth' % episode),
         )
