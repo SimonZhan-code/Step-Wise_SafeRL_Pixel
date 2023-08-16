@@ -13,13 +13,13 @@ from tqdm import tqdm
 
 from modules.env import CONTROL_SUITE_ENVS, GYM_ENVS, SAFETY_GYM_ENVS, Env, EnvBatcher
 from utils.memory import ExperienceReplay
-from modules.models import ActorModel, Encoder, ObservationModel, RewardModel, TransitionModel, ValueModel, bottle
-from modules.planner import MPCPlanner
-from utils.utils import FreezeParameters, imagine_ahead, lambda_return, lineplot, write_video
+from modules.models import ActorModel, Encoder, ObservationModel, RewardModel, TransitionModel, ValueModel, bottle, CostModel
+from modules.planner import MPCPlanner, Controller, BarrierNN
+from utils.utils import FreezeParameters, lambda_return, lineplot, write_video, imagine_ahead
 
 # Hyperparameters
-parser = argparse.ArgumentParser(description='PlaNet or Dreamer')
-parser.add_argument('--algo', type=str, default='dreamer', help='planet or dreamer')
+parser = argparse.ArgumentParser(description='CBF-Dreamer')
+parser.add_argument('--algo', type=str, default='cbf-dreamer', help='cbf-dreamer')
 parser.add_argument('--id', type=str, default='default', help='Experiment ID')
 parser.add_argument('--seed', type=int, default=1, metavar='S', help='Random seed')
 parser.add_argument('--disable-cuda', action='store_true', help='Disable CUDA')
@@ -27,8 +27,8 @@ parser.add_argument(
     '--env',
     type=str,
     default='Pendulum-v0',
-    choices=GYM_ENVS + CONTROL_SUITE_ENVS + SAFETY_GYM_ENVS,
-    help='Gym/Control Suite environment',
+    choices=SAFETY_GYM_ENVS,
+    help='Safety_GYM_Env',
 )
 parser.add_argument('--observation_type', default='rgb_image')
 parser.add_argument('--symbolic-env', action='store_true', help='Symbolic features')
@@ -58,9 +58,11 @@ parser.add_argument('--belief-size', type=int, default=200, metavar='H', help='B
 parser.add_argument('--state-size', type=int, default=30, metavar='Z', help='State/latent size')
 parser.add_argument('--action-repeat', type=int, default=2, metavar='R', help='Action repeat')
 parser.add_argument('--action-noise', type=float, default=0.3, metavar='ε', help='Action noise')
-parser.add_argument('--episodes', type=int, default=100, metavar='E', help='Total number of episodes')
+# Experiment Tuning here
+parser.add_argument('--episodes', type=int, default=500, metavar='E', help='Total number of episodes')
 parser.add_argument('--seed-episodes', type=int, default=5, metavar='S', help='Seed episodes')
 parser.add_argument('--collect-interval', type=int, default=500, metavar='C', help='Collect interval')
+# Experiment Tuning here
 parser.add_argument('--batch-size', type=int, default=50, metavar='B', help='Batch size')
 parser.add_argument('--chunk-size', type=int, default=50, metavar='L', help='Chunk size')
 parser.add_argument(
@@ -92,9 +94,14 @@ parser.add_argument(
 parser.add_argument('--global-kl-beta', type=float, default=1, metavar='βg', help='Global KL weight (0 to disable)')
 parser.add_argument('--free-nats', type=float, default=3, metavar='F', help='Free nats')
 parser.add_argument('--bit-depth', type=int, default=5, metavar='B', help='Image bit depth (quantisation)')
-parser.add_argument('--model_learning-rate', type=float, default=5e-4, metavar='α', help='Learning rate')
-parser.add_argument('--actor_learning-rate', type=float, default=8e-5, metavar='α', help='Learning rate')
+## Tuning parameters
+parser.add_argument('--model_learning-rate', type=float, default=1e-4, metavar='α', help='Learning rate')
+# parser.add_argument('--reward_learning-rate', type=float, default=8e-5, metavar='α', help='Learning rate')
+# parser.add_argument('--cost_learning-rate', type=float, default=8e-5, metavar='α', help='Learning rate')
+
 parser.add_argument('--value_learning-rate', type=float, default=8e-5, metavar='α', help='Learning rate')
+parser.add_argument('--barrier_learning-rate', type=float, default=8e-5, metavar='α', help='Learning rate')
+parser.add_argument('--controller_learning-rate', type=float, default=8e-5, metavar='α', help='Learning rate')
 parser.add_argument(
     '--learning-rate-schedule',
     type=int,
@@ -149,8 +156,11 @@ metrics = {
     'test_rewards': [],
     'observation_loss': [],
     'reward_loss': [],
+    'cost_loss': [],
     'kl_loss': [],
-    'actor_loss': [],
+    # 'actor_loss': [],
+    'barrier_loss': [],
+    'controller_loss': [],
     'value_loss': [],
 }
 
@@ -173,8 +183,8 @@ elif not args.test:
         observation, done, t = env.reset(), False, 0
         while not done:
             action = env.sample_random_action()
-            next_observation, reward, done, _ = env.step(action)
-            D.append(observation, action, reward, done, None)
+            next_observation, reward, done, cost = env.step(action)
+            D.append(observation, action, reward, done, cost)
             observation = next_observation
             t += 1
         metrics['steps'].append(t * args.action_repeat + (0 if len(metrics['steps']) == 0 else metrics['steps'][-1]))
@@ -199,33 +209,52 @@ observation_model = ObservationModel(
     args.embedding_size,
     args.cnn_activation_function,
 ).to(device=args.device)
+
 reward_model = RewardModel(args.belief_size, args.state_size, args.hidden_size, args.dense_activation_function).to(
     device=args.device
 )
+
+cost_model = CostModel(args.belief_size, args.state_size, args.hidden_size, args.dense_activation_function).to(
+    device=args.device
+)
+
+barrier_model = BarrierNN(args.belief_size, args.state_size, args.hidden_size).to(device=args.device)
+
 encoder = Encoder(args.symbolic_env, env.observation_size, args.embedding_size, args.cnn_activation_function).to(
     device=args.device
 )
-actor_model = ActorModel(
-    args.belief_size, args.state_size, args.hidden_size, env.action_size, args.dense_activation_function
-).to(device=args.device)
+
+controller = Controller(args.belief_size, args.state_size, args.hidden_size, env.action_size).to(device=args.device)
+
+# actor_model = ActorModel(
+#     args.belief_size, args.state_size, args.hidden_size, env.action_size, args.dense_activation_function
+# ).to(device=args.device)
+
 value_model = ValueModel(args.belief_size, args.state_size, args.hidden_size, args.dense_activation_function).to(
     device=args.device
 )
+
 param_list = (
     list(transition_model.parameters())
     + list(observation_model.parameters())
     + list(reward_model.parameters())
+    + list(cost_model.parameters())
     + list(encoder.parameters())
 )
-value_actor_param_list = list(value_model.parameters()) + list(actor_model.parameters())
-params_list = param_list + value_actor_param_list
+value_barrier_controller_param_list = list(value_model.parameters()) + list(barrier_model.parameters()) + list(controller.parameters())
+params_list = param_list + value_barrier_controller_param_list
 print("transition, observation, reward, encoder, actor, value models are ready")
 model_optimizer = optim.Adam(
     param_list, lr=0 if args.learning_rate_schedule != 0 else args.model_learning_rate, eps=args.adam_epsilon
 )
-actor_optimizer = optim.Adam(
-    actor_model.parameters(),
-    lr=0 if args.learning_rate_schedule != 0 else args.actor_learning_rate,
+barrier_optimizer = optim.Adam(
+    barrier_model.parameters(),
+    lr=0 if args.learning_rate_schedule != 0 else args.barrier_learning_rate,
+    eps=args.adam_epsilon,
+)
+controller_optimizer = optim.Adam(
+    barrier_model.parameters(),
+    lr=0 if args.learning_rate_schedule != 0 else args.controller_learning_rate,
     eps=args.adam_epsilon,
 )
 value_optimizer = optim.Adam(
@@ -239,24 +268,30 @@ if args.models != '' and os.path.exists(args.models):
     transition_model.load_state_dict(model_dicts['transition_model'])
     observation_model.load_state_dict(model_dicts['observation_model'])
     reward_model.load_state_dict(model_dicts['reward_model'])
+    cost_model.load_state_dict(model_dicts['cost_model'])
     encoder.load_state_dict(model_dicts['encoder'])
-    actor_model.load_state_dict(model_dicts['actor_model'])
+    barrier_model.load_state_dict(model_dicts['barrier_model'])
+    controller.load_state_dict(model_dicts['controller'])
     value_model.load_state_dict(model_dicts['value_model'])
     model_optimizer.load_state_dict(model_dicts['model_optimizer'])
-if args.algo == "dreamer":
-    print("DREAMER")
-    planner = actor_model
-else:
-    print("PLANET")
-    planner = MPCPlanner(
-        env.action_size,
-        args.planning_horizon,
-        args.optimisation_iters,
-        args.candidates,
-        args.top_candidates,
-        transition_model,
-        reward_model,
-    )
+
+# if args.algo == "dreamer":
+#     print("DREAMER")
+#     planner = actor_model
+# else:
+#     print("PLANET")
+#     planner = MPCPlanner(
+#         env.action_size,
+#         args.planning_horizon,
+#         args.optimisation_iters,
+#         args.candidates,
+#         args.top_candidates,
+#         transition_model,
+#         reward_model,
+#     )
+print("CBF-Dreamer")
+planner = controller
+
 global_prior = Normal(
     torch.zeros(args.batch_size, args.state_size, device=args.device),
     torch.ones(args.batch_size, args.state_size, device=args.device),
@@ -276,24 +311,22 @@ def update_belief_and_act(
     belief, posterior_state = belief.squeeze(dim=0), posterior_state.squeeze(
         dim=0
     )  # Remove time dimension from belief/state
-    if args.algo == "dreamer":
-        action = planner.get_action(belief, posterior_state, det=not (explore))
-    else:
-        action = planner(belief, posterior_state)  # Get action from planner(q(s_t|o≤t,a<t), p)
+    # if args.algo == "dreamer":
+    #     action = planner.get_action(belief, posterior_state, det=not (explore))
+    # else:
+    #     action = planner(belief, posterior_state)  # Get action from planner(q(s_t|o≤t,a<t), p)
+    # # Input state for planner forward and generate action
+    action = planner.get_action(belief, posterior_state)
+
     if explore:
         action = torch.clamp(
             Normal(action, args.action_noise).rsample(), -1, 1
         )  # Add gaussian exploration noise on top of the sampled action
         # action = action + args.action_noise * torch.randn_like(action)  # Add exploration noise ε ~ p(ε) to the action
-    if isinstance(env, EnvBatcher):
-        next_observation, reward, done = env.step(
-            action.cpu() if isinstance(env, EnvBatcher) else action[0].cpu()
-        )  # Perform environment step (action repeats handled internally)
-    else:
-        next_observation, reward, done, _ = env.step(
-            action.cpu() if isinstance(env, EnvBatcher) else action[0].cpu()
-        )
-    return belief, posterior_state, action, next_observation, reward, done
+    next_observation, reward, done, cost = env.step(
+        action.cpu() if isinstance(env, EnvBatcher) else action[0].cpu()
+    )  # Perform environment step (action repeats handled internally)
+    return belief, posterior_state, action, next_observation, reward, done, cost
 
 
 # Testing only
@@ -301,6 +334,7 @@ if args.test:
     # Set models to eval mode
     transition_model.eval()
     reward_model.eval()
+    cost_model.eval()
     encoder.eval()
     with torch.no_grad():
         total_reward = 0
@@ -313,7 +347,7 @@ if args.test:
             )
             pbar = tqdm(range(args.max_episode_length // args.action_repeat))
             for t in pbar:
-                belief, posterior_state, action, observation, reward, done = update_belief_and_act(
+                belief, posterior_state, action, observation, reward, done, cost = update_belief_and_act(
                     args,
                     env,
                     planner,
@@ -339,12 +373,12 @@ if args.test:
 for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total=args.episodes, initial=metrics['episodes'][-1] + 1):
     # Model fitting
     losses = []
-    model_modules = transition_model.modules + encoder.modules + observation_model.modules + reward_model.modules
+    model_modules = transition_model.modules + encoder.modules + observation_model.modules + reward_model.modules + cost_model.modules
 
     print("training loop")
     for s in tqdm(range(args.collect_interval)):
         # Draw sequence chunks {(o_t, a_t, r_t+1, terminal_t+1)} ~ D uniformly at random from the dataset (including terminal flags)
-        observations, actions, rewards, _, nonterminals = D.sample(
+        observations, actions, rewards, costs, nonterminals = D.sample(
             args.batch_size, args.chunk_size
         )  # Transitions start at time t = 0
         # Create initial belief and state for time t = 0
@@ -364,6 +398,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
             init_state, actions[:-1], init_belief, bottle(encoder, (observations[1:],)), nonterminals[:-1]
         )
         # Calculate observation likelihood, reward likelihood and KL losses (for t = 0 only for latent overshooting); sum over final dims, average over batch and time (original implementation, though paper seems to miss 1/T scaling?)
+        # Observation loss
         if args.worldmodel_LogProbLoss:
             observation_dist = Normal(bottle(observation_model, (beliefs, posterior_states)), 1)
             observation_loss = (
@@ -377,6 +412,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 .sum(dim=2 if args.symbolic_env else (2, 3, 4))
                 .mean(dim=(0, 1))
             )
+
+        # Reward loss
         if args.worldmodel_LogProbLoss:
             reward_dist = Normal(bottle(reward_model, (beliefs, posterior_states)), 1)
             reward_loss = -reward_dist.log_prob(rewards[:-1]).mean(dim=(0, 1))
@@ -384,7 +421,17 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
             reward_loss = F.mse_loss(
                 bottle(reward_model, (beliefs, posterior_states)), rewards[:-1], reduction='none'
             ).mean(dim=(0, 1))
-        # transition loss
+
+        # Cost Loss
+        if args.worldmodel_LogProbLoss:
+            cost_dist = Normal(bottle(cost_model, (beliefs, posterior_states)), 1)
+            cost_loss = -cost_dist.log_prob(costs[:-1]).mean(dim=(0, 1))
+        else:
+            cost_loss = F.mse_loss(
+                bottle(cost_model, (beliefs, posterior_states)), costs[:-1], reduction='none'
+            ).mean(dim=(0, 1))
+
+        # Transition Loss
         div = kl_divergence(Normal(posterior_means, posterior_std_devs), Normal(prior_means, prior_std_devs)).sum(dim=2)
         kl_loss = torch.max(div, free_nats).mean(
             dim=(0, 1)
@@ -464,20 +511,24 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 group['lr'] = min(
                     group['lr'] + args.model_learning_rate / args.model_learning_rate_schedule, args.model_learning_rate
                 )
-        model_loss = observation_loss + reward_loss + kl_loss
+        
+        model_loss = observation_loss + reward_loss + kl_loss + cost_loss
         # Update model parameters
         model_optimizer.zero_grad()
         model_loss.backward()
         nn.utils.clip_grad_norm_(param_list, args.grad_clip_norm, norm_type=2)
         model_optimizer.step()
 
-        # Dreamer implementation: actor loss calculation and optimization
+        ## CBF-Dreamer implementation: Jointly train the Barrier Certificate and Controller
+        # B(x) > 0 already satisfied by the sigmoid function of BC network
+
+        #  Retrieve imageined reward, cost, and pred value function
         with torch.no_grad():
-            actor_states = posterior_states.detach()
-            actor_beliefs = beliefs.detach()
+            bc_states = posterior_states.detach()
+            bc_beliefs = beliefs.detach()
         with FreezeParameters(model_modules):
             imagination_traj = imagine_ahead(
-                actor_states, actor_beliefs, actor_model, transition_model, args.planning_horizon
+                bc_states, bc_beliefs, controller, transition_model, args.planning_horizon
             )
         imged_beliefs, imged_prior_states, imged_prior_means, imged_prior_std_devs = imagination_traj
         with FreezeParameters(model_modules + value_model.modules):
@@ -493,7 +544,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         nn.utils.clip_grad_norm_(actor_model.parameters(), args.grad_clip_norm, norm_type=2)
         actor_optimizer.step()
 
-        # Dreamer implementation: value loss calculation and optimization
+        
+        # CBF-Dreamer implementation: value loss calculation and optimization
         with torch.no_grad():
             value_beliefs = imged_beliefs.detach()
             value_prior_states = imged_prior_states.detach()
@@ -558,7 +610,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 observation.to(device=args.device),
                 explore=True,
             )
-            D.append(observation, action.cpu(), reward, done, None)
+            D.append(observation, action.cpu(), reward, done)
             total_reward += reward
             observation = next_observation
             # if args.render:
