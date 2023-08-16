@@ -117,5 +117,5 @@ class BarrierNN(jit.ScriptModule):
         hidden = self.act_fn(self.fc1(x))
         hidden = self.act_fn(self.fc2(hidden))
         hidden = self.act_fn(self.fc3(hidden))
-        barrier = nn.Sigmoid(self.fc4(hidden)).squeeze(dim=1)
+        barrier = self.fc4(hidden).squeeze(dim=1)
         return barrier
