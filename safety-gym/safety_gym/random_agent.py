@@ -13,7 +13,7 @@ def run_random(env_name):
     ep_cost = 0
     while True:
         if done:
-            print('Episode Return: %.3f \t Episode Cost: %.3f'%(ep_ret, ep_cost))
+            # print('Episode Return: %.3f \t Episode Cost: %.3f'%(ep_ret, ep_cost))
             ep_ret, ep_cost = 0, 0
             obs = env.reset()
         assert env.observation_space.contains(obs)
@@ -22,7 +22,8 @@ def run_random(env_name):
         obs, reward, done, info = env.step(act)
         # print('reward', reward)
         ep_ret += reward
-        ep_cost += info.get('cost', 0)
+        ep_cost += info.get('cost_hazards', 0)
+        print('Current Cost: %.3f'%(ep_cost))
         env.render()
 
 
