@@ -18,6 +18,8 @@ from modules.planner import MPCPlanner, Controller, BarrierNN
 from utils.utils import FreezeParameters, lambda_return, lineplot, write_video, imagine_ahead
 
 COST_THRESHOLD = 0
+_epsilon = 1e-2
+_eta = 10
 
 # Hyperparameters
 parser = argparse.ArgumentParser(description='CBF-Dreamer')
@@ -539,20 +541,22 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
             value_pred = bottle(value_model, (imged_beliefs, imged_prior_states))
 
         # Retrieve imageined safety costs pred
-        with FreezeParameters(model_modules):
+        with FreezeParameters(model_modules + barrier_model.modules):
             imged_safety_cost = bottle(cost_model, (imged_beliefs, imged_prior_states))
+            imged_safety_barrier_value = bottle(barrier_model, (imged_beliefs, imged_prior_states))
 
         returns = lambda_return(
             imged_reward, value_pred, bootstrap=value_pred[-1], discount=args.discount, lambda_=args.disclam
         )
-        actor_loss = -torch.mean(returns)
-        # Update model parameters
+        controller_loss = -torch.mean(returns)
         barrier_loss = 0
-        controller_loss = 0
-        actor_optimizer.zero_grad()
-        actor_loss.backward()
-        nn.utils.clip_grad_norm_(actor_model.parameters(), args.grad_clip_norm, norm_type=2)
-        actor_optimizer.step()
+        
+        # Update model parameters
+        
+        controller_optimizer.zero_grad()
+        controller_loss.backward()
+        nn.utils.clip_grad_norm_(controller.parameters(), args.grad_clip_norm, norm_type=2)
+        controller_optimizer.step()
 
         
         # CBF-Dreamer implementation: value loss calculation and optimization

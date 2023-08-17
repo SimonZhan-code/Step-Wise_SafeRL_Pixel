@@ -64,7 +64,7 @@ def write_video(frames, title, path=''):
 
 def imagine_ahead(prev_state, prev_belief, policy, transition_model, planning_horizon=12):
     '''
-    imagine_ahead is the function to draw the imaginary tracjectory using the dynamics model, actor, critic.
+    imagine_ahead is the function to draw the imaginary tracjectory using the dynamics model and policy.
     Input: current state (posterior), current belief (hidden), policy, transition_model  # torch.Size([50, 30]) torch.Size([50, 200])
     Output: generated trajectory of features includes beliefs, prior_states, prior_means, prior_std_devs
             torch.Size([49, 50, 200]) torch.Size([49, 50, 30]) torch.Size([49, 50, 30]) torch.Size([49, 50, 30])
