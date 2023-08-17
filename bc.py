@@ -17,6 +17,8 @@ from modules.models import ActorModel, Encoder, ObservationModel, RewardModel, T
 from modules.planner import MPCPlanner, Controller, BarrierNN
 from utils.utils import FreezeParameters, lambda_return, lineplot, write_video, imagine_ahead
 
+COST_THRESHOLD = 0
+
 # Hyperparameters
 parser = argparse.ArgumentParser(description='CBF-Dreamer')
 parser.add_argument('--algo', type=str, default='cbf-dreamer', help='cbf-dreamer')
@@ -520,9 +522,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         model_optimizer.step()
 
         ## CBF-Dreamer implementation: Jointly train the Barrier Certificate and Controller
-        # B(x) > 0 already satisfied by the sigmoid function of BC network
 
-        #  Retrieve imageined reward, cost, and pred value function
+        #  Retrieve imageined trajectories
         with torch.no_grad():
             bc_states = posterior_states.detach()
             bc_beliefs = beliefs.detach()
@@ -531,14 +532,23 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 bc_states, bc_beliefs, controller, transition_model, args.planning_horizon
             )
         imged_beliefs, imged_prior_states, imged_prior_means, imged_prior_std_devs = imagination_traj
+
+        # Retrieve imageined rewards and pred values function
         with FreezeParameters(model_modules + value_model.modules):
             imged_reward = bottle(reward_model, (imged_beliefs, imged_prior_states))
             value_pred = bottle(value_model, (imged_beliefs, imged_prior_states))
+
+        # Retrieve imageined safety costs pred
+        with FreezeParameters(model_modules):
+            imged_safety_cost = bottle(cost_model, (imged_beliefs, imged_prior_states))
+
         returns = lambda_return(
             imged_reward, value_pred, bootstrap=value_pred[-1], discount=args.discount, lambda_=args.disclam
         )
         actor_loss = -torch.mean(returns)
         # Update model parameters
+        barrier_loss = 0
+        controller_loss = 0
         actor_optimizer.zero_grad()
         actor_loss.backward()
         nn.utils.clip_grad_norm_(actor_model.parameters(), args.grad_clip_norm, norm_type=2)
@@ -565,7 +575,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         #     [observation_loss.item(), reward_loss.item(), kl_loss.item()]
         # )
         losses.append(
-            [observation_loss.item(), reward_loss.item(), kl_loss.item(), actor_loss.item(), value_loss.item()]
+            [observation_loss.item(), reward_loss.item(), kl_loss.item(), barrier_loss.item(),  controller_loss.item(), value_loss.item()]
         )
 
     # Update and plot loss metrics
@@ -573,8 +583,9 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     metrics['observation_loss'].append(losses[0])
     metrics['reward_loss'].append(losses[1])
     metrics['kl_loss'].append(losses[2])
-    metrics['actor_loss'].append(losses[3])
-    metrics['value_loss'].append(losses[4])
+    metrics['barrier_loss'].append(losses[3])
+    metrics['controller_loss'].append(losses[4])
+    metrics['value_loss'].append(losses[5])
     lineplot(
         metrics['episodes'][-len(metrics['observation_loss']) :],
         metrics['observation_loss'],
@@ -583,7 +594,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     )
     lineplot(metrics['episodes'][-len(metrics['reward_loss']) :], metrics['reward_loss'], 'reward_loss', results_dir)
     lineplot(metrics['episodes'][-len(metrics['kl_loss']) :], metrics['kl_loss'], 'kl_loss', results_dir)
-    lineplot(metrics['episodes'][-len(metrics['actor_loss']) :], metrics['actor_loss'], 'actor_loss', results_dir)
+    lineplot(metrics['episodes'][-len(metrics['barrier_loss']) :], metrics['barrier_loss'], 'barrier_loss', results_dir)
+    lineplot(metrics['episodes'][-len(metrics['controller_loss']) :], metrics['controller_loss'], 'controller_loss', results_dir)
     lineplot(metrics['episodes'][-len(metrics['value_loss']) :], metrics['value_loss'], 'value_loss', results_dir)
 
     # Data collection
@@ -637,8 +649,11 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         transition_model.eval()
         observation_model.eval()
         reward_model.eval()
+        cost_model.eval()
         encoder.eval()
-        actor_model.eval()
+        barrier_model.eval()
+        controller.eval()
+        # actor_model.eval()
         value_model.eval()
         # Initialise parallelised test environments
         test_envs = EnvBatcher(
@@ -704,8 +719,10 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         transition_model.train()
         observation_model.train()
         reward_model.train()
+        cost_model.train()
+        barrier_model.train()
+        controller.train()
         encoder.train()
-        actor_model.train()
         value_model.train()
         # Close test environments
         test_envs.close()
@@ -714,8 +731,11 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     writer.add_scalar("train/episode_reward", metrics['train_rewards'][-1], metrics['steps'][-1] * args.action_repeat)
     writer.add_scalar("observation_loss", metrics['observation_loss'][0][-1], metrics['steps'][-1])
     writer.add_scalar("reward_loss", metrics['reward_loss'][0][-1], metrics['steps'][-1])
+    writer.add_scalar("cost_loss", metrics['cost_loss'][0][-1], metrics['steps'][-1])
     writer.add_scalar("kl_loss", metrics['kl_loss'][0][-1], metrics['steps'][-1])
-    writer.add_scalar("actor_loss", metrics['actor_loss'][0][-1], metrics['steps'][-1])
+    writer.add_scalar("barrier_loss", metrics['barrier_loss'][0][-1], metrics['steps'][-1])
+    writer.add_scalar("controller_loss", metrics['controller_loss'][0][-1], metrics['steps'][-1])
+    # writer.add_scalar("actor_loss", metrics['actor_loss'][0][-1], metrics['steps'][-1])
     writer.add_scalar("value_loss", metrics['value_loss'][0][-1], metrics['steps'][-1])
     print(
         "episodes: {}, total_steps: {}, train_reward: {} ".format(
@@ -731,10 +751,14 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 'observation_model': observation_model.state_dict(),
                 'reward_model': reward_model.state_dict(),
                 'encoder': encoder.state_dict(),
-                'actor_model': actor_model.state_dict(),
+                'cost_model': cost_model.state_dict(),
+                'controller': controller.state_dict(),
+                # 'actor_model': actor_model.state_dict(),
                 'value_model': value_model.state_dict(),
                 'model_optimizer': model_optimizer.state_dict(),
-                'actor_optimizer': actor_optimizer.state_dict(),
+                'barrier_optimizer': barrier_optimizer.state_dict(),
+                'controller_optimizer': controller_optimizer.state_dict(),
+                # 'actor_optimizer': actor_optimizer.state_dict(),
                 'value_optimizer': value_optimizer.state_dict(),
             },
             os.path.join(results_dir, 'models_%d.pth' % episode),
