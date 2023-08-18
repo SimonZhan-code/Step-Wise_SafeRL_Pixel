@@ -318,7 +318,7 @@ class EnvBatcher:
         done_mask = torch.nonzero(torch.tensor(self.dones))[
             :, 0
         ]  # Done mask to blank out observations and zero rewards for previously terminated environments
-        observations, rewards, dones, info = zip(*[env.step(action) for env, action in zip(self.envs, actions)])
+        observations, rewards, dones, costs = zip(*[env.step(action) for env, action in zip(self.envs, actions)])
         dones = [
             d or prev_d for d, prev_d in zip(dones, self.dones)
         ]  # Env should remain terminated if previously terminated

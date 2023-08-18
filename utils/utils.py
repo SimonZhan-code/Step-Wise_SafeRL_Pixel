@@ -10,7 +10,7 @@ from plotly.graph_objs.scatter import Line
 from torch.nn import Module
 from torch.nn import functional as F
 
-COST_THRESHOLD = 0
+COST_THRESHOLD = 0.2
 _epsilon = 1e-2
 # time step of the gym environment 
 _DT = 0.002
@@ -132,23 +132,29 @@ def lambda_return(imged_reward, value_pred, bootstrap, discount=0.99, lambda_=1)
 def loss_barrier(imged_cost, imged_barrier):
     safe = True
     losses = []
-    for t in range(len(imged_barrier)):
+    for i in range(len(imged_cost)):
         loss = 0
-        if t == 0:
-            derivative = 0
-        else:
-            derivative = imged_barrier[t] - imged_barrier[t - 1]
-        if imged_cost[t] >= COST_THRESHOLD:
-            safe = False
-        if safe:
-            loss = max(0, _epsilon - imged_barrier[t])
-            loss += max(0, _epsilon - derivative - imged_barrier[t])
-        else:
-            loss = max(0, imged_barrier[t] - _epsilon)
-            loss += max(0, _epsilon - derivative - imged_barrier[t])
-        losses.append(loss)
-        safe = True        
-    losses = torch.stack(losses, 0)
+        imged_cost_i = imged_cost[i]
+        imged_barrier_i = imged_barrier[i]
+        for t in range(len(imged_barrier_i)):
+            # loss = 0
+            if t == 0:
+                derivative = 0
+            else:
+                derivative = imged_barrier_i[t] - imged_barrier_i[t - 1]
+            # print(imged_cost[t])
+            if imged_cost_i[t] >= COST_THRESHOLD:
+                safe = False
+            if safe:
+                loss = max(0, _epsilon - imged_barrier_i[t])
+                loss += max(0, _epsilon - derivative - imged_barrier_i[t])
+            else:
+                loss = max(0, imged_barrier_i[t] - _epsilon)
+                loss += max(0, _epsilon - derivative - imged_barrier_i[t])
+            # losses.append(loss)
+            safe = True
+        losses.append(loss)       
+    losses = torch.tensor(losses, dtype=torch.float32)
     return losses
 
 
