@@ -13,11 +13,11 @@ from tqdm import tqdm
 
 from modules.env import CONTROL_SUITE_ENVS, GYM_ENVS, SAFETY_GYM_ENVS, Env, EnvBatcher
 from utils.memory import ExperienceReplay
-from modules.models import ActorModel, Encoder, ObservationModel, RewardModel, TransitionModel, ValueModel, bottle
+from modules.models import ActorModel, Encoder, ObservationModel, RewardModel, TransitionModel, ValueModel, bottle, CostModel
 from modules.planner import MPCPlanner
 from utils.utils import FreezeParameters, imagine_ahead, lambda_return, lineplot, write_video
 
-CUDA_VISIBLE_DEVICES=6
+
 
 # Hyperparameters
 parser = argparse.ArgumentParser(description='PlaNet or Dreamer')

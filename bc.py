@@ -17,7 +17,6 @@ from modules.models import ActorModel, Encoder, ObservationModel, RewardModel, T
 from modules.planner import MPCPlanner, Controller, BarrierNN
 from utils.utils import FreezeParameters, lambda_return, lineplot, write_video, imagine_ahead, loss_barrier
 
-CUDA_VISIBLE_DEVICES=6
 _eta = 10
 
 # Hyperparameters
