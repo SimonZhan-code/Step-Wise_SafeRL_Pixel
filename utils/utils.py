@@ -132,9 +132,12 @@ def lambda_return(imged_reward, value_pred, bootstrap, discount=0.99, lambda_=1)
 def loss_barrier(imged_cost, imged_barrier):
     safe = True
     losses = []
-    for t in range(len(imged_barrier) - 1):
+    for t in range(len(imged_barrier)):
         loss = 0
-        derivative = imged_barrier[t + 1] - imged_barrier[t]
+        if t == 0:
+            derivative = 0
+        else:
+            derivative = imged_barrier[t] - imged_barrier[t - 1]
         if imged_cost[t] >= COST_THRESHOLD:
             safe = False
         if safe:

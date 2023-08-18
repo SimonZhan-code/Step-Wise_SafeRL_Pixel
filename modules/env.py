@@ -323,16 +323,16 @@ class EnvBatcher:
             d or prev_d for d, prev_d in zip(dones, self.dones)
         ]  # Env should remain terminated if previously terminated
         self.dones = dones
-        costs = [temp['cost'] for temp in info]
+        # costs = [temp['cost'] for temp in info]
         observations, rewards, dones, costs = (
             torch.cat(observations),
             torch.tensor(rewards, dtype=torch.float32),
             torch.tensor(dones, dtype=torch.uint8),
-            torch.tensor(costs),
+            torch.tensor(costs, dtype=torch.float32),
         )
         observations[done_mask] = 0
         rewards[done_mask] = 0
-        costs[sone_mask] = 0
+        costs[done_mask] = 0
         return observations, rewards, dones, costs
 
     def close(self):
