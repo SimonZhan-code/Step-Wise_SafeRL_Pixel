@@ -546,10 +546,12 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         returns = lambda_return(
             imged_reward, value_pred, bootstrap=value_pred[-1], discount=args.discount, lambda_=args.disclam
         )
-        controller_loss = -torch.mean(returns)
-        barrier_loss = loss_barrier(imged_cost, imged_barrier)
-        barrier_loss = torch.sum(barrier_loss)
-        controller_loss = _eta * barrier_loss + controller_loss
+        controller_loss = - torch.mean(returns)
+        # print(imged_cost)
+        # print(imged_barrier)
+        barrier_return = loss_barrier(imged_cost, imged_barrier)
+        barrier_return = torch.mean(barrier_return)
+        controller_loss = _eta * barrier_return + controller_loss
         
         # Update model parameters
         
@@ -558,12 +560,24 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         nn.utils.clip_grad_norm_(controller.parameters(), args.grad_clip_norm, norm_type=2)
         controller_optimizer.step()
 
+
+        # CBF-Dreamer implementation: value loss calculation and optimization
+        # Barrier function network training 
+        with torch.no_grad():
+            barrier_beliefs = imged_beliefs.detach()
+            barrier_prior_states = imged_prior_states.detach()
+            target_barrier_loss = barrier_return.detach()
+        
+        barrier_dist = Normal(
+            bottle(barrier_model, (barrier_beliefs, barrier_prior_states)), 1
+        )
+        barrier_loss = -barrier_dist.log_prob(target_barrier_loss).mean(dim=(0, 1))
         barrier_optimizer.zero_grad()
         barrier_loss.backward()
         nn.utils.clip_grad_norm_(barrier_model.parameters(), args.grad_clip_norm, norm_type=2)
         barrier_optimizer.step()
 
-        # CBF-Dreamer implementation: value loss calculation and optimization
+        # Value function network training 
         with torch.no_grad():
             value_beliefs = imged_beliefs.detach()
             value_prior_states = imged_prior_states.detach()
