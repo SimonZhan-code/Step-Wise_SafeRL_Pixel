@@ -15,10 +15,9 @@ from modules.env import CONTROL_SUITE_ENVS, GYM_ENVS, SAFETY_GYM_ENVS, Env, EnvB
 from utils.memory import ExperienceReplay
 from modules.models import ActorModel, Encoder, ObservationModel, RewardModel, TransitionModel, ValueModel, bottle, CostModel
 from modules.planner import MPCPlanner, Controller, BarrierNN
-from utils.utils import FreezeParameters, lambda_return, lineplot, write_video, imagine_ahead
+from utils.utils import FreezeParameters, lambda_return, lineplot, write_video, imagine_ahead, loss_barrier
 
-COST_THRESHOLD = 0
-_epsilon = 1e-2
+CUDA_VISIBLE_DEVICES=6
 _eta = 10
 
 # Hyperparameters
@@ -119,7 +118,7 @@ parser.add_argument('--grad-clip-norm', type=float, default=100.0, metavar='C', 
 
 parser.add_argument('--planning-horizon', type=int, default=15, metavar='H', help='Planning horizon distance')
 parser.add_argument('--discount', type=float, default=0.99, metavar='H', help='Planning horizon distance')
-parser.add_argument('--disclam', type=float, default=0.95, metavar='H', help='discount rate to compute return')
+parser.add_argument('--disclam', type=float, default=1, metavar='H', help='discount rate to compute return')
 parser.add_argument('--optimisation-iters', type=int, default=10, metavar='I', help='Planning optimisation iterations')
 parser.add_argument('--candidates', type=int, default=1000, metavar='J', help='Candidate samples per iteration')
 parser.add_argument('--top-candidates', type=int, default=100, metavar='K', help='Number of top candidates to fit')
@@ -542,14 +541,16 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
 
         # Retrieve imageined safety costs pred
         with FreezeParameters(model_modules + barrier_model.modules):
-            imged_safety_cost = bottle(cost_model, (imged_beliefs, imged_prior_states))
-            imged_safety_barrier_value = bottle(barrier_model, (imged_beliefs, imged_prior_states))
+            imged_cost = bottle(cost_model, (imged_beliefs, imged_prior_states))
+            imged_barrier = bottle(barrier_model, (imged_beliefs, imged_prior_states))
 
         returns = lambda_return(
             imged_reward, value_pred, bootstrap=value_pred[-1], discount=args.discount, lambda_=args.disclam
         )
         controller_loss = -torch.mean(returns)
-        barrier_loss = 0
+        barrier_loss = loss_barrier(imged_cost, imged_barrier)
+        barrier_loss = torch.sum(barrier_loss)
+        controller_loss = _eta * barrier_loss + controller_loss
         
         # Update model parameters
         
@@ -558,7 +559,11 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         nn.utils.clip_grad_norm_(controller.parameters(), args.grad_clip_norm, norm_type=2)
         controller_optimizer.step()
 
-        
+        barrier_optimizer.zero_grad()
+        barrier_loss.backward()
+        nn.utils.clip_grad_norm_(barrier_model.parameters(), args.grad_clip_norm, norm_type=2)
+        barrier_optimizer.step()
+
         # CBF-Dreamer implementation: value loss calculation and optimization
         with torch.no_grad():
             value_beliefs = imged_beliefs.detach()
@@ -579,17 +584,18 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         #     [observation_loss.item(), reward_loss.item(), kl_loss.item()]
         # )
         losses.append(
-            [observation_loss.item(), reward_loss.item(), kl_loss.item(), barrier_loss.item(),  controller_loss.item(), value_loss.item()]
+            [observation_loss.item(), reward_loss.item(), cost_loss.item(), kl_loss.item(), barrier_loss.item(), controller_loss.item(), value_loss.item()]
         )
 
     # Update and plot loss metrics
     losses = tuple(zip(*losses))
     metrics['observation_loss'].append(losses[0])
     metrics['reward_loss'].append(losses[1])
-    metrics['kl_loss'].append(losses[2])
-    metrics['barrier_loss'].append(losses[3])
-    metrics['controller_loss'].append(losses[4])
-    metrics['value_loss'].append(losses[5])
+    metrics['cost_loss'].append(losses[2])
+    metrics['kl_loss'].append(losses[3])
+    metrics['barrier_loss'].append(losses[4])
+    metrics['controller_loss'].append(losses[5])
+    metrics['value_loss'].append(losses[6])
     lineplot(
         metrics['episodes'][-len(metrics['observation_loss']) :],
         metrics['observation_loss'],
@@ -598,6 +604,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     )
     lineplot(metrics['episodes'][-len(metrics['reward_loss']) :], metrics['reward_loss'], 'reward_loss', results_dir)
     lineplot(metrics['episodes'][-len(metrics['kl_loss']) :], metrics['kl_loss'], 'kl_loss', results_dir)
+    lineplot(metrics['episodes'][-len(metrics['cost_loss']) :], metrics['cost_loss'], 'cost_loss', results_dir)
     lineplot(metrics['episodes'][-len(metrics['barrier_loss']) :], metrics['barrier_loss'], 'barrier_loss', results_dir)
     lineplot(metrics['episodes'][-len(metrics['controller_loss']) :], metrics['controller_loss'], 'controller_loss', results_dir)
     lineplot(metrics['episodes'][-len(metrics['value_loss']) :], metrics['value_loss'], 'value_loss', results_dir)
@@ -614,7 +621,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         pbar = tqdm(range(args.max_episode_length // args.action_repeat))
         for t in pbar:
             # print("step",t)
-            belief, posterior_state, action, next_observation, reward, done = update_belief_and_act(
+            belief, posterior_state, action, next_observation, reward, done, cost = update_belief_and_act(
                 args,
                 env,
                 planner,
@@ -626,7 +633,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 observation.to(device=args.device),
                 explore=True,
             )
-            D.append(observation, action.cpu(), reward, done)
+            D.append(observation, action.cpu(), reward, done, cost)
             total_reward += reward
             observation = next_observation
             # if args.render:
@@ -676,7 +683,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
             )
             pbar = tqdm(range(args.max_episode_length // args.action_repeat))
             for t in pbar:
-                belief, posterior_state, action, next_observation, reward, done = update_belief_and_act(
+                belief, posterior_state, action, next_observation, reward, done, cost = update_belief_and_act(
                     args,
                     test_envs,
                     planner,

@@ -17,6 +17,8 @@ from modules.models import ActorModel, Encoder, ObservationModel, RewardModel, T
 from modules.planner import MPCPlanner
 from utils.utils import FreezeParameters, imagine_ahead, lambda_return, lineplot, write_video
 
+CUDA_VISIBLE_DEVICES=6
+
 # Hyperparameters
 parser = argparse.ArgumentParser(description='PlaNet or Dreamer')
 parser.add_argument('--algo', type=str, default='dreamer', help='planet or dreamer')
@@ -149,6 +151,7 @@ metrics = {
     'test_rewards': [],
     'observation_loss': [],
     'reward_loss': [],
+    'cost_loss': [],
     'kl_loss': [],
     'actor_loss': [],
     'value_loss': [],
@@ -173,8 +176,8 @@ elif not args.test:
         observation, done, t = env.reset(), False, 0
         while not done:
             action = env.sample_random_action()
-            next_observation, reward, done, _ = env.step(action)
-            D.append(observation, action, reward, done, None)
+            next_observation, reward, done, cost = env.step(action)
+            D.append(observation, action, reward, done, cost)
             observation = next_observation
             t += 1
         metrics['steps'].append(t * args.action_repeat + (0 if len(metrics['steps']) == 0 else metrics['steps'][-1]))
@@ -205,6 +208,9 @@ reward_model = RewardModel(args.belief_size, args.state_size, args.hidden_size, 
 encoder = Encoder(args.symbolic_env, env.observation_size, args.embedding_size, args.cnn_activation_function).to(
     device=args.device
 )
+cost_model = CostModel(args.belief_size, args.state_size, args.hidden_size, args.dense_activation_function).to(
+    device=args.device
+)
 actor_model = ActorModel(
     args.belief_size, args.state_size, args.hidden_size, env.action_size, args.dense_activation_function
 ).to(device=args.device)
@@ -215,6 +221,7 @@ param_list = (
     list(transition_model.parameters())
     + list(observation_model.parameters())
     + list(reward_model.parameters())
+    + list(cost_model.parameters())
     + list(encoder.parameters())
 )
 value_actor_param_list = list(value_model.parameters()) + list(actor_model.parameters())
@@ -239,6 +246,7 @@ if args.models != '' and os.path.exists(args.models):
     transition_model.load_state_dict(model_dicts['transition_model'])
     observation_model.load_state_dict(model_dicts['observation_model'])
     reward_model.load_state_dict(model_dicts['reward_model'])
+    cost_model.load_state_dict(model_dicts['cost_model'])
     encoder.load_state_dict(model_dicts['encoder'])
     actor_model.load_state_dict(model_dicts['actor_model'])
     value_model.load_state_dict(model_dicts['value_model'])
@@ -286,14 +294,14 @@ def update_belief_and_act(
         )  # Add gaussian exploration noise on top of the sampled action
         # action = action + args.action_noise * torch.randn_like(action)  # Add exploration noise ε ~ p(ε) to the action
     if isinstance(env, EnvBatcher):
-        next_observation, reward, done = env.step(
+        next_observation, reward, done, cost = env.step(
             action.cpu() if isinstance(env, EnvBatcher) else action[0].cpu()
         )  # Perform environment step (action repeats handled internally)
     else:
-        next_observation, reward, done, _ = env.step(
+        next_observation, reward, done, cost= env.step(
             action.cpu() if isinstance(env, EnvBatcher) else action[0].cpu()
         )
-    return belief, posterior_state, action, next_observation, reward, done
+    return belief, posterior_state, action, next_observation, reward, done, cost
 
 
 # Testing only
@@ -301,6 +309,7 @@ if args.test:
     # Set models to eval mode
     transition_model.eval()
     reward_model.eval()
+    cost_model.eval()
     encoder.eval()
     with torch.no_grad():
         total_reward = 0
@@ -313,7 +322,7 @@ if args.test:
             )
             pbar = tqdm(range(args.max_episode_length // args.action_repeat))
             for t in pbar:
-                belief, posterior_state, action, observation, reward, done = update_belief_and_act(
+                belief, posterior_state, action, observation, reward, done, cost = update_belief_and_act(
                     args,
                     env,
                     planner,
@@ -339,12 +348,12 @@ if args.test:
 for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total=args.episodes, initial=metrics['episodes'][-1] + 1):
     # Model fitting
     losses = []
-    model_modules = transition_model.modules + encoder.modules + observation_model.modules + reward_model.modules
+    model_modules = transition_model.modules + encoder.modules + observation_model.modules + reward_model.modules + cost_model.modules
 
     print("training loop")
     for s in tqdm(range(args.collect_interval)):
         # Draw sequence chunks {(o_t, a_t, r_t+1, terminal_t+1)} ~ D uniformly at random from the dataset (including terminal flags)
-        observations, actions, rewards, _, nonterminals = D.sample(
+        observations, actions, rewards, costs, nonterminals = D.sample(
             args.batch_size, args.chunk_size
         )  # Transitions start at time t = 0
         # Create initial belief and state for time t = 0
@@ -384,6 +393,15 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
             reward_loss = F.mse_loss(
                 bottle(reward_model, (beliefs, posterior_states)), rewards[:-1], reduction='none'
             ).mean(dim=(0, 1))
+
+        if args.worldmodel_LogProbLoss:
+            cost_dist = Normal(bottle(cost_model, (beliefs, posterior_states)), 1)
+            cost_loss = -cost_dist.log_prob(costs[:-1]).mean(dim=(0, 1))
+        else:
+            cost_loss = F.mse_loss(
+                bottle(cost_model, (beliefs, posterior_states)), costs[:-1], reduction='none'
+            ).mean(dim=(0, 1))
+
         # transition loss
         div = kl_divergence(Normal(posterior_means, posterior_std_devs), Normal(prior_means, prior_std_devs)).sum(dim=2)
         kl_loss = torch.max(div, free_nats).mean(
@@ -464,7 +482,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 group['lr'] = min(
                     group['lr'] + args.model_learning_rate / args.model_learning_rate_schedule, args.model_learning_rate
                 )
-        model_loss = observation_loss + reward_loss + kl_loss
+        model_loss = observation_loss + reward_loss + kl_loss + cost_loss
         # Update model parameters
         model_optimizer.zero_grad()
         model_loss.backward()
@@ -513,16 +531,17 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         #     [observation_loss.item(), reward_loss.item(), kl_loss.item()]
         # )
         losses.append(
-            [observation_loss.item(), reward_loss.item(), kl_loss.item(), actor_loss.item(), value_loss.item()]
+            [observation_loss.item(), reward_loss.item(), cost_loss.item(), kl_loss.item(), actor_loss.item(), value_loss.item()]
         )
 
     # Update and plot loss metrics
     losses = tuple(zip(*losses))
     metrics['observation_loss'].append(losses[0])
     metrics['reward_loss'].append(losses[1])
-    metrics['kl_loss'].append(losses[2])
-    metrics['actor_loss'].append(losses[3])
-    metrics['value_loss'].append(losses[4])
+    metrics['cost_loss'].append(losses[2])
+    metrics['kl_loss'].append(losses[3])
+    metrics['actor_loss'].append(losses[4])
+    metrics['value_loss'].append(losses[5])
     lineplot(
         metrics['episodes'][-len(metrics['observation_loss']) :],
         metrics['observation_loss'],
@@ -530,6 +549,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         results_dir,
     )
     lineplot(metrics['episodes'][-len(metrics['reward_loss']) :], metrics['reward_loss'], 'reward_loss', results_dir)
+    lineplot(metrics['episodes'][-len(metrics['cost_loss']) :], metrics['cost_loss'], 'cost_loss', results_dir)
     lineplot(metrics['episodes'][-len(metrics['kl_loss']) :], metrics['kl_loss'], 'kl_loss', results_dir)
     lineplot(metrics['episodes'][-len(metrics['actor_loss']) :], metrics['actor_loss'], 'actor_loss', results_dir)
     lineplot(metrics['episodes'][-len(metrics['value_loss']) :], metrics['value_loss'], 'value_loss', results_dir)
@@ -546,7 +566,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         pbar = tqdm(range(args.max_episode_length // args.action_repeat))
         for t in pbar:
             # print("step",t)
-            belief, posterior_state, action, next_observation, reward, done = update_belief_and_act(
+            belief, posterior_state, action, next_observation, reward, done, cost = update_belief_and_act(
                 args,
                 env,
                 planner,
@@ -558,7 +578,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 observation.to(device=args.device),
                 explore=True,
             )
-            D.append(observation, action.cpu(), reward, done, None)
+            D.append(observation, action.cpu(), reward, done, cost)
             total_reward += reward
             observation = next_observation
             # if args.render:
@@ -585,6 +605,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         transition_model.eval()
         observation_model.eval()
         reward_model.eval()
+        cost_model.eval()
         encoder.eval()
         actor_model.eval()
         value_model.eval()
@@ -605,7 +626,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
             )
             pbar = tqdm(range(args.max_episode_length // args.action_repeat))
             for t in pbar:
-                belief, posterior_state, action, next_observation, reward, done = update_belief_and_act(
+                belief, posterior_state, action, next_observation, reward, done, cost = update_belief_and_act(
                     args,
                     test_envs,
                     planner,
@@ -652,6 +673,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         transition_model.train()
         observation_model.train()
         reward_model.train()
+        cost_model.train()
         encoder.train()
         actor_model.train()
         value_model.train()
@@ -662,6 +684,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     writer.add_scalar("train/episode_reward", metrics['train_rewards'][-1], metrics['steps'][-1] * args.action_repeat)
     writer.add_scalar("observation_loss", metrics['observation_loss'][0][-1], metrics['steps'][-1])
     writer.add_scalar("reward_loss", metrics['reward_loss'][0][-1], metrics['steps'][-1])
+    writer.add_scalar("cost_loss", metrics['cost_loss'][0][-1], metrics['steps'][-1])
     writer.add_scalar("kl_loss", metrics['kl_loss'][0][-1], metrics['steps'][-1])
     writer.add_scalar("actor_loss", metrics['actor_loss'][0][-1], metrics['steps'][-1])
     writer.add_scalar("value_loss", metrics['value_loss'][0][-1], metrics['steps'][-1])
@@ -678,6 +701,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 'transition_model': transition_model.state_dict(),
                 'observation_model': observation_model.state_dict(),
                 'reward_model': reward_model.state_dict(),
+                'cost_model': cost_model.state_dict(),
                 'encoder': encoder.state_dict(),
                 'actor_model': actor_model.state_dict(),
                 'value_model': value_model.state_dict(),

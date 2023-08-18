@@ -10,6 +10,10 @@ from plotly.graph_objs.scatter import Line
 from torch.nn import Module
 from torch.nn import functional as F
 
+COST_THRESHOLD = 0
+_epsilon = 1e-2
+# time step of the gym environment 
+_DT = 0.002
 
 # Plots min, max and mean + standard deviation bars of a population over time
 def lineplot(xs, ys_population, title, path='', xaxis='episode'):
@@ -123,6 +127,27 @@ def lambda_return(imged_reward, value_pred, bootstrap, discount=0.99, lambda_=1)
     outputs = torch.stack(outputs, 0)
     returns = outputs
     return returns
+
+
+def loss_barrier(imged_cost, imged_barrier):
+    safe = True
+    losses = []
+    for t in range(len(imged_barrier) - 1):
+        loss = 0
+        derivative = imged_barrier[t + 1] - imged_barrier[t]
+        if imged_cost[t] >= COST_THRESHOLD:
+            safe = False
+        if safe:
+            loss = max(0, _epsilon - imged_barrier[t])
+            loss += max(0, _epsilon - derivative - imged_barrier[t])
+        else:
+            loss = max(0, imged_barrier[t] - _epsilon)
+            loss += max(0, _epsilon - derivative - imged_barrier[t])
+        losses.append(loss)
+        safe = True        
+    losses = torch.stack(losses, 0)
+    return losses
+
 
 
 class ActivateParameters:
