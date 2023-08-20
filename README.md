@@ -1,27 +1,24 @@
-Dreamer implementation in PyTorch
+CBF Dreamer implementation in PyTorch
 ======
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
 
-## Dreamer-torch1.8.2
-### **Updated the code to catch up with the latest pytorch version.**
-
-### **Previous version for pytorch 1.4 is left at `dreamer` branch.**
-
-### Not conpatible with open-source Mujoco yet. Please download and use mujoco-200 and free license key from [here](https://www.roboti.us/)
-
-This repo implements the Dreamer algorithm from [Dream to Control: Learning Behaviors By latent Imagination](https://arxiv.org/pdf/1912.01603.pdf) based on the [PlaNet-Pytorch](https://github.com/Kaixhin/PlaNet). It has been confirmed working on the DeepMind Control Suite/MuJoCo environment. Hyperparameters have been taken from the paper.
 
 ## Installation
 To install all dependencies with Anaconda run using the following commands. 
 
-`conda env create -f conda_env.yml` 
+`conda env create -n CBF-dreamer python=3.8` 
 
-`source activate dreamer` 
+`pip install -r requirements.txt` 
 
-## Training (e.g. DMC walker-walk)
+## Training (e.g. Safexp-PointGoal0)
+To run naive Actor-Critic method(Original Dreamer)
 ```bash
-python main.py --algo planet --env Safexp-PointGoal0-v0 --action-repeat 2 --id MPC-Safexp-PointGoal0-v0-0
+python main.py --algo dreamer --env Safexp-PointGoal0-v0 --action-repeat 2 --id AC-Safexp-PointGoal0-v0-0
+```
+To run CBF-dreamer
+```bash
+python bc.py --algo CBF-dreamer --env Safexp-PointGoal0-v0 --action-repeat 2 --id AC-Safexp-PointGoal0-v0-0
 ```
 
 For best performance with DeepMind Control Suite, try setting environment variable `MUJOCO_GL=egl` (see instructions and details [here](https://github.com/deepmind/dm_control#rendering)).
@@ -30,7 +27,7 @@ Use Tensorboard to monitor the training.
 
 `tensorboard --logdir results`
 
-## Results
+<!-- ## Results
 The performances are compared with the other SoTA algorithms as follows 
 (Note! Tested once using seed 0.)
 
@@ -56,8 +53,9 @@ The performances are compared with the other SoTA algorithms as follows
   <img width="800" src="./imgs/ball_in_cup-catch.png">
 </p>
 
-Pretrained models can be found in the [releases](https://github.com/Kaixhin/PlaNet/releases).
+Pretrained models can be found in the [releases](https://github.com/Kaixhin/PlaNet/releases). -->
 
 ## Links
 - [Dream to Control: Learning Behaviors By latent Imagination](https://ai.googleblog.com/2020/03/introducing-dreamer-scalable.html)
 - [google-research/dreamer](https://github.com/google-research/dreamer)
+- [pytorch implementation of Dreamer]{https://github.com/yusukeurakami/dreamer-pytorch}
