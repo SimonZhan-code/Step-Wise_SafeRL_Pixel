@@ -58,4 +58,4 @@ Pretrained models can be found in the [releases](https://github.com/Kaixhin/PlaN
 ## Links
 - [Dream to Control: Learning Behaviors By latent Imagination](https://ai.googleblog.com/2020/03/introducing-dreamer-scalable.html)
 - [google-research/dreamer](https://github.com/google-research/dreamer)
-- [pytorch implementation of Dreamer]{https://github.com/yusukeurakami/dreamer-pytorch}
+- [pytorch implementation of Dreamer](https://github.com/yusukeurakami/dreamer-pytorch)
