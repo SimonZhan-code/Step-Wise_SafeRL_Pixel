@@ -566,20 +566,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
 
         # CBF-Dreamer implementation: value loss calculation and optimization
         # Barrier function network training 
-        # with torch.no_grad():
-        #     barrier_beliefs = imged_beliefs.detach()
-        #     barrier_prior_states = imged_prior_states.detach()
-        #     target_barrier_loss = barrier_return.detach()
         
-        # barrier_dist = Normal(
-        #     bottle(barrier_model, (barrier_beliefs, barrier_prior_states)), 1
-        # )
-        # barrier_loss = -barrier_dist.log_prob(target_barrier_loss).mean(dim=(0, 1))
-        # barrier_optimizer.zero_grad()
-        # barrier_loss.backward()
-        # nn.utils.clip_grad_norm_(barrier_model.parameters(), args.grad_clip_norm, norm_type=2)
-        # barrier_optimizer.step()
-
         # Value function network training 
         with torch.no_grad():
             value_beliefs = imged_beliefs.detach()
