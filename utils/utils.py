@@ -141,7 +141,7 @@ def loss_barrier(imged_cost, imged_barrier):
             if t == 0:
                 derivative = 0
             else:
-                derivative = imged_barrier_i[t] - imged_barrier_i[t - 1]
+                derivative = (imged_barrier_i[t] - imged_barrier_i[t - 1])/0.02
             # print(imged_cost[t])
             if imged_cost_i[t] >= COST_THRESHOLD:
                 safe = False
@@ -154,9 +154,8 @@ def loss_barrier(imged_cost, imged_barrier):
             # losses.append(loss)
             safe = True
         losses.append(loss)       
-    losses = torch.tensor(losses, dtype=torch.float32)
+    losses = torch.tensor(losses, dtype=torch.float32, requires_grad=True)
     return losses
-
 
 
 class ActivateParameters:
