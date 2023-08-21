@@ -141,7 +141,7 @@ def loss_barrier(imged_cost, imged_barrier):
             if t == 0:
                 derivative = 0
             else:
-                derivative = (imged_barrier_i[t] - imged_barrier_i[t - 1])/0.02
+                derivative = (imged_barrier_i[t] - imged_barrier_i[t - 1])/_DT
             # print(imged_cost[t])
             if imged_cost_i[t] >= COST_THRESHOLD:
                 safe = False
