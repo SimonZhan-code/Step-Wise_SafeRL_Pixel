@@ -94,7 +94,7 @@ parser.add_argument(
 parser.add_argument('--global-kl-beta', type=float, default=1, metavar='βg', help='Global KL weight (0 to disable)')
 parser.add_argument('--free-nats', type=float, default=3, metavar='F', help='Free nats')
 parser.add_argument('--bit-depth', type=int, default=5, metavar='B', help='Image bit depth (quantisation)')
-parser.add_argument('--model_learning-rate', type=float, default=5e-4, metavar='α', help='Learning rate')
+parser.add_argument('--model_learning-rate', type=float, default=1e-4, metavar='α', help='Learning rate')
 parser.add_argument('--actor_learning-rate', type=float, default=8e-5, metavar='α', help='Learning rate')
 parser.add_argument('--value_learning-rate', type=float, default=8e-5, metavar='α', help='Learning rate')
 parser.add_argument(
@@ -504,7 +504,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         returns = lambda_return(
             imged_reward, value_pred, bootstrap=value_pred[-1], discount=args.discount, lambda_=args.disclam
         )
-        actor_loss = -torch.mean(returns)
+        actor_loss = -torch.mean(torch.sum(returns, dim=0))
         # Update model parameters
         actor_optimizer.zero_grad()
         actor_loss.backward()
