@@ -69,9 +69,9 @@ def write_video(frames, title, path=''):
 def imagine_ahead(prev_state, prev_belief, policy, transition_model, planning_horizon=12):
     '''
     imagine_ahead is the function to draw the imaginary tracjectory using the dynamics model and policy.
-    Input: current state (posterior), current belief (hidden), policy, transition_model  # torch.Size([50, 30]) torch.Size([50, 200])
+    Input: current state (posterior), current belief (hidden), policy, transition_model  
     Output: generated trajectory of features includes beliefs, prior_states, prior_means, prior_std_devs
-            torch.Size([49, 50, 200]) torch.Size([49, 50, 30]) torch.Size([49, 50, 30]) torch.Size([49, 50, 30])
+            torch.Size([2450, 200]) torch.Size([2450, 30]) torch.Size([2450, 30]) torch.Size([2450, 30])
     '''
     flatten = lambda x: x.view([-1] + list(x.size()[2:]))
     prev_belief = flatten(prev_belief)
@@ -86,6 +86,7 @@ def imagine_ahead(prev_state, prev_belief, policy, transition_model, planning_ho
         [torch.empty(0)] * T,
     )
     beliefs[0], prior_states[0] = prev_belief, prev_state
+    # print(len(prev_belief))
 
     # Loop over time sequence
     for t in range(T - 1):
@@ -99,7 +100,7 @@ def imagine_ahead(prev_state, prev_belief, policy, transition_model, planning_ho
         prior_means[t + 1], _prior_std_dev = torch.chunk(transition_model.fc_state_prior(hidden), 2, dim=1)
         prior_std_devs[t + 1] = F.softplus(_prior_std_dev) + transition_model.min_std_dev
         prior_states[t + 1] = prior_means[t + 1] + prior_std_devs[t + 1] * torch.randn_like(prior_means[t + 1])
-        # print(len(beliefs))
+        # print(len(beliefs[t]))
     # Return new hidden states
     # imagined_traj = [beliefs, prior_states, prior_means, prior_std_devs]
     imagined_traj = [
@@ -127,6 +128,7 @@ def lambda_return(imged_reward, value_pred, bootstrap, discount=0.99, lambda_=0.
     outputs = list(reversed(outputs))
     outputs = torch.stack(outputs, 0)
     returns = outputs
+    # print(returns.size())
     return returns
 
 

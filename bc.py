@@ -17,7 +17,7 @@ from modules.models import ActorModel, Encoder, ObservationModel, RewardModel, T
 from modules.planner import MPCPlanner, Controller, BarrierNN
 from utils.utils import FreezeParameters, lambda_return, lineplot, write_video, imagine_ahead, loss_barrier
 
-_eta = 10
+_eta = 1
 
 # Hyperparameters
 parser = argparse.ArgumentParser(description='CBF-Dreamer')
@@ -117,7 +117,7 @@ parser.add_argument('--grad-clip-norm', type=float, default=100.0, metavar='C', 
 
 parser.add_argument('--planning-horizon', type=int, default=15, metavar='H', help='Planning horizon distance')
 parser.add_argument('--discount', type=float, default=0.99, metavar='H', help='Planning horizon distance')
-parser.add_argument('--disclam', type=float, default=1, metavar='H', help='discount rate to compute return')
+parser.add_argument('--disclam', type=float, default=0.95, metavar='H', help='discount rate to compute return')
 parser.add_argument('--optimisation-iters', type=int, default=10, metavar='I', help='Planning optimisation iterations')
 parser.add_argument('--candidates', type=int, default=1000, metavar='J', help='Candidate samples per iteration')
 parser.add_argument('--top-candidates', type=int, default=100, metavar='K', help='Number of top candidates to fit')
@@ -442,6 +442,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
             kl_loss += args.global_kl_beta * kl_divergence(
                 Normal(posterior_means, posterior_std_devs), global_prior
             ).sum(dim=2).mean(dim=(0, 1))
+
         # Calculate latent overshooting objective for t > 0
         if args.overshooting_kl_beta != 0:
             overshooting_vars = []  # Collect variables for overshooting to process in batch
@@ -507,6 +508,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                     ).mean(dim=(0, 1))
                     * (args.chunk_size - 1)
                 )  # Update reward loss (compensating for extra average over each overshooting/open loop sequence)
+        
         # Apply linearly ramping learning rate schedule
         if args.learning_rate_schedule != 0:
             for group in model_optimizer.param_groups:
@@ -527,6 +529,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         with torch.no_grad():
             bc_states = posterior_states.detach()
             bc_beliefs = beliefs.detach()
+        # print(bc_beliefs.size())
+
         with FreezeParameters(model_modules):
             imagination_traj = imagine_ahead(
                 bc_states, bc_beliefs, controller, transition_model, args.planning_horizon
@@ -546,12 +550,15 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         returns = lambda_return(
             imged_reward, value_pred, bootstrap=value_pred[-1], discount=args.discount, lambda_=args.disclam
         )
-        controller_loss = - torch.mean(returns)
-        # print(imged_cost)
-        # print(imged_barrier)
+        controller_loss = - torch.mean(torch.sum(returns, dim=0))
+        # print(imged_beliefs.size())
+        # print(value_pred.size())
+        # print(imged_reward.size())
+        # print(returns.size())
+        # print(imged_barrier.size())
         barrier_return = loss_barrier(imged_cost, imged_barrier)
         barrier_loss = torch.mean(barrier_return)
-        print(barrier_loss.item())
+        # print(barrier_loss.item())
         controller_loss = _eta * barrier_loss + controller_loss
         
         # Update model parameters
@@ -566,7 +573,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         barrier_optimizer.step()
 
         # CBF-Dreamer implementation: value loss calculation and optimization
-        # Barrier function network training 
+        # Barrier function network training  ss
         
         # Value function network training 
         with torch.no_grad():
