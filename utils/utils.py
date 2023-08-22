@@ -10,10 +10,10 @@ from plotly.graph_objs.scatter import Line
 from torch.nn import Module
 from torch.nn import functional as F
 
-COST_THRESHOLD = 0.2
+
 _epsilon = 1e-2
 # time step of the gym environment 
-_DT = 0.002
+
 
 # Plots min, max and mean + standard deviation bars of a population over time
 def lineplot(xs, ys_population, title, path='', xaxis='episode'):
@@ -99,6 +99,7 @@ def imagine_ahead(prev_state, prev_belief, policy, transition_model, planning_ho
         prior_means[t + 1], _prior_std_dev = torch.chunk(transition_model.fc_state_prior(hidden), 2, dim=1)
         prior_std_devs[t + 1] = F.softplus(_prior_std_dev) + transition_model.min_std_dev
         prior_states[t + 1] = prior_means[t + 1] + prior_std_devs[t + 1] * torch.randn_like(prior_means[t + 1])
+        # print(len(beliefs))
     # Return new hidden states
     # imagined_traj = [beliefs, prior_states, prior_means, prior_std_devs]
     imagined_traj = [
@@ -110,7 +111,7 @@ def imagine_ahead(prev_state, prev_belief, policy, transition_model, planning_ho
     return imagined_traj
 
 
-def lambda_return(imged_reward, value_pred, bootstrap, discount=0.99, lambda_=1):
+def lambda_return(imged_reward, value_pred, bootstrap, discount=0.99, lambda_=0.95):
     # Setting lambda=1 gives a discounted Monte Carlo return.
     # Setting lambda=0 gives a fixed 1-step return.
     next_values = torch.cat([value_pred[1:], bootstrap[None]], 0)
@@ -129,28 +130,30 @@ def lambda_return(imged_reward, value_pred, bootstrap, discount=0.99, lambda_=1)
     return returns
 
 
-def loss_barrier(imged_cost, imged_barrier):
+def loss_barrier(imged_cost, barrier_pred, COST_THRESHOLD = 0.5, _DT = 0.002):
     safe = True
     losses = []
+    imged_cost = torch.transpose(imged_cost, 0, 1)
+    barrier_pred = torch.transpose(barrier_pred, 0, 1)
     for i in range(len(imged_cost)):
         loss = 0
         imged_cost_i = imged_cost[i]
-        imged_barrier_i = imged_barrier[i]
-        for t in range(len(imged_barrier_i)):
+        barrier_pred_i = barrier_pred[i]
+        for t in range(len(barrier_pred_i)):
             # loss = 0
             if t == 0:
                 derivative = 0
             else:
-                derivative = (imged_barrier_i[t] - imged_barrier_i[t - 1])/_DT
+                derivative = (barrier_pred_i[t] - barrier_pred_i[t - 1])/_DT
             # print(imged_cost[t])
             if imged_cost_i[t] >= COST_THRESHOLD:
                 safe = False
             if safe:
-                loss = max(0, _epsilon - imged_barrier_i[t])
-                loss += max(0, _epsilon - derivative - imged_barrier_i[t])
+                loss = max(0, _epsilon - barrier_pred_i[t])
+                loss += max(0, _epsilon - derivative - barrier_pred_i[t])
             else:
-                loss = max(0, imged_barrier_i[t] - _epsilon)
-                loss += max(0, _epsilon - derivative - imged_barrier_i[t])
+                loss = max(0, barrier_pred_i[t] - _epsilon)
+                loss += max(0, _epsilon - derivative - barrier_pred_i[t])
             # losses.append(loss)
             safe = True
         losses.append(loss)       
