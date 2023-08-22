@@ -61,7 +61,7 @@ parser.add_argument('--state-size', type=int, default=30, metavar='Z', help='Sta
 parser.add_argument('--action-repeat', type=int, default=2, metavar='R', help='Action repeat')
 parser.add_argument('--action-noise', type=float, default=0.3, metavar='ε', help='Action noise')
 # Experiment Tuning here
-parser.add_argument('--episodes', type=int, default=500, metavar='E', help='Total number of episodes')
+parser.add_argument('--episodes', type=int, default=100, metavar='E', help='Total number of episodes')
 parser.add_argument('--seed-episodes', type=int, default=5, metavar='S', help='Seed episodes')
 parser.add_argument('--collect-interval', type=int, default=500, metavar='C', help='Collect interval')
 # Experiment Tuning here
@@ -245,7 +245,7 @@ param_list = (
 )
 value_barrier_controller_param_list = list(value_model.parameters()) + list(barrier_model.parameters()) + list(controller.parameters())
 params_list = param_list + value_barrier_controller_param_list
-print("transition, observation, reward, encoder, actor, value models are ready")
+print("transition, observation, reward, encoder, barrier, controller, value models are ready")
 model_optimizer = optim.Adam(
     param_list, lr=0 if args.learning_rate_schedule != 0 else args.model_learning_rate, eps=args.adam_epsilon
 )
@@ -551,6 +551,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         # print(imged_barrier)
         barrier_return = loss_barrier(imged_cost, imged_barrier)
         barrier_loss = torch.mean(barrier_return)
+        print(barrier_loss.item())
         controller_loss = _eta * barrier_loss + controller_loss
         
         # Update model parameters
@@ -559,9 +560,9 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         controller_optimizer.zero_grad()
         controller_loss.backward()
         nn.utils.clip_grad_norm_(controller.parameters(), args.grad_clip_norm, norm_type=2)
+        nn.utils.clip_grad_norm_(barrier_model.parameters(), args.grad_clip_norm, norm_type=2)
         controller_optimizer.step()
 
-        nn.utils.clip_grad_norm_(barrier_model.parameters(), args.grad_clip_norm, norm_type=2)
         barrier_optimizer.step()
 
         # CBF-Dreamer implementation: value loss calculation and optimization
@@ -583,9 +584,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         value_optimizer.step()
 
         # # Store (0) observation loss (1) reward loss (2) KL loss (3) actor loss (4) value loss
-        # losses.append(
-        #     [observation_loss.item(), reward_loss.item(), kl_loss.item()]
-        # )
+       
         losses.append(
             [observation_loss.item(), reward_loss.item(), cost_loss.item(), kl_loss.item(), barrier_loss.item(), controller_loss.item(), value_loss.item()]
         )
