@@ -17,12 +17,13 @@ from modules.models import ActorModel, Encoder, ObservationModel, RewardModel, T
 from modules.planner import MPCPlanner, Controller, BarrierNN
 from utils.utils import FreezeParameters, lambda_return, lineplot, write_video, imagine_ahead, loss_barrier
 
-_eta = 0.1
+# _eta = 0.01
 
 # Hyperparameters
 parser = argparse.ArgumentParser(description='CBF-Dreamer')
 parser.add_argument('--algo', type=str, default='cbf-dreamer', help='cbf-dreamer')
 parser.add_argument('--id', type=str, default='default', help='Experiment ID')
+parser.add_argument('--cost_threshold', type=float, default=0.5, help='Threshold to distinguish safe and unsafe region')
 parser.add_argument('--seed', type=int, default=1, metavar='S', help='Random seed')
 parser.add_argument('--disable-cuda', action='store_true', help='Disable CUDA')
 parser.add_argument(
@@ -32,6 +33,8 @@ parser.add_argument(
     choices=SAFETY_GYM_ENVS,
     help='Safety_GYM_Env',
 )
+parser.add_argument('--eta', type=float, default=0.01, help='eta on safety parameter')
+parser.add_argument('--epsilon', type=float, default=0.1, help='margin used to find bc')
 parser.add_argument('--observation_type', default='rgb_image')
 parser.add_argument('--symbolic-env', action='store_true', help='Symbolic features')
 parser.add_argument('--max-episode-length', type=int, default=1000, metavar='T', help='Max episode length')
@@ -101,9 +104,9 @@ parser.add_argument('--model_learning-rate', type=float, default=1e-4, metavar='
 # parser.add_argument('--reward_learning-rate', type=float, default=8e-5, metavar='α', help='Learning rate')
 # parser.add_argument('--cost_learning-rate', type=float, default=8e-5, metavar='α', help='Learning rate')
 
-parser.add_argument('--value_learning-rate', type=float, default=8e-3, metavar='α', help='Learning rate')
-parser.add_argument('--barrier_learning-rate', type=float, default=8e-3, metavar='α', help='Learning rate')
-parser.add_argument('--controller_learning-rate', type=float, default=8e-3, metavar='α', help='Learning rate')
+parser.add_argument('--value_learning-rate', type=float, default=5e-6, metavar='α', help='Learning rate')
+parser.add_argument('--barrier_learning-rate', type=float, default=5e-6, metavar='α', help='Learning rate')
+parser.add_argument('--controller_learning-rate', type=float, default=5e-6, metavar='α', help='Learning rate')
 parser.add_argument(
     '--learning-rate-schedule',
     type=int,
@@ -556,10 +559,10 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         # print(imged_reward.size())
         # print(returns.size())
         # print(imged_barrier.size())
-        barrier_return = loss_barrier(imged_cost, imged_barrier)
+        barrier_return = loss_barrier(imged_cost, imged_barrier, args.cost_threshold, args.epsilon)
         barrier_loss = torch.mean(barrier_return)
         # print(barrier_loss.item())
-        controller_loss = _eta * barrier_loss - torch.mean(torch.sum(returns, dim=0))
+        controller_loss = args.eta * barrier_loss - torch.mean(torch.sum(returns, dim=0))
         
         # Update model parameters
         

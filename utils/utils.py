@@ -11,7 +11,7 @@ from torch.nn import Module
 from torch.nn import functional as F
 
 
-_epsilon = 1e-2
+# _epsilon = 1e-1
 # time step of the gym environment 
 
 
@@ -132,7 +132,7 @@ def lambda_return(imged_reward, value_pred, bootstrap, discount=0.99, lambda_=0.
     return returns
 
 
-def loss_barrier(imged_cost, barrier_pred, COST_THRESHOLD = 0.5, _DT = 0.002):
+def loss_barrier(imged_cost, barrier_pred, COST_THRESHOLD,  _epsilon, _DT = 0.002):
     safe = True
     losses = []
     imged_cost = torch.transpose(imged_cost, 0, 1)
