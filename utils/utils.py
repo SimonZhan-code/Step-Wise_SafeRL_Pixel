@@ -137,8 +137,9 @@ def loss_barrier(imged_cost, barrier_pred, COST_THRESHOLD,  _epsilon, _DT = 0.00
     losses = []
     imged_cost = torch.transpose(imged_cost, 0, 1)
     barrier_pred = torch.transpose(barrier_pred, 0, 1)
+    # zero = torch.zeros(1, device='cuda', requires_grad = True)
     for i in range(len(imged_cost)):
-        loss = 0
+        loss = torch.zeros(1, device='cuda')
         imged_cost_i = imged_cost[i]
         barrier_pred_i = barrier_pred[i]
         for t in range(len(barrier_pred_i)):
@@ -148,19 +149,27 @@ def loss_barrier(imged_cost, barrier_pred, COST_THRESHOLD,  _epsilon, _DT = 0.00
             else:
                 derivative = (barrier_pred_i[t] - barrier_pred_i[t - 1])/_DT
             # print(imged_cost[t])
+            # print(barrier_pred_i[t].requires_grad, barrier_pred_i[t - 1].requires_grad)
             if imged_cost_i[t] >= COST_THRESHOLD:
                 safe = False
             if safe:
-                loss = max(0, _epsilon - barrier_pred_i[t])
-                loss += max(0, _epsilon - derivative - barrier_pred_i[t])
+                loss.data += F.relu(_epsilon - barrier_pred_i[t])
+                loss.data += F.relu(_epsilon - derivative - barrier_pred_i[t])
             else:
-                loss = max(0, barrier_pred_i[t] - _epsilon)
-                loss += max(0, _epsilon - derivative - barrier_pred_i[t])
+                loss.data += F.relu(barrier_pred_i[t] - _epsilon)
+                loss.data += F.relu(_epsilon - derivative - barrier_pred_i[t])
             # losses.append(loss)
             safe = True
+        # print(loss.requires_grad)
         losses.append(loss)       
-    losses = torch.tensor(losses, dtype=torch.float32, requires_grad=True)
+    losses = torch.stack(losses, 0)
     return losses
+
+
+def barrier_loss(imged_cost, barrier_pred, COST_THRESHOLD, _epsilon, _DT = 0.02):
+    safety_mask = COST_THRESHOLD * torch.ones_like(imged_cost)
+    safety_mask = torch.maximum(imged_cost, safety_mask)
+
 
 
 class ActivateParameters:

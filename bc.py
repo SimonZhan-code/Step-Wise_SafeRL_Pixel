@@ -33,8 +33,8 @@ parser.add_argument(
     choices=SAFETY_GYM_ENVS,
     help='Safety_GYM_Env',
 )
-parser.add_argument('--eta', type=float, default=0.01, help='eta on safety parameter')
-parser.add_argument('--epsilon', type=float, default=0.1, help='margin used to find bc')
+parser.add_argument('--eta', type=float, default=10, help='Eta on safety parameter')
+parser.add_argument('--epsilon', type=float, default=0.01, help='Margin used to find bc')
 parser.add_argument('--observation_type', default='rgb_image')
 parser.add_argument('--symbolic-env', action='store_true', help='Symbolic features')
 parser.add_argument('--max-episode-length', type=int, default=1000, metavar='T', help='Max episode length')
@@ -104,9 +104,9 @@ parser.add_argument('--model_learning-rate', type=float, default=1e-4, metavar='
 # parser.add_argument('--reward_learning-rate', type=float, default=8e-5, metavar='α', help='Learning rate')
 # parser.add_argument('--cost_learning-rate', type=float, default=8e-5, metavar='α', help='Learning rate')
 
-parser.add_argument('--value_learning-rate', type=float, default=5e-6, metavar='α', help='Learning rate')
-parser.add_argument('--barrier_learning-rate', type=float, default=5e-6, metavar='α', help='Learning rate')
-parser.add_argument('--controller_learning-rate', type=float, default=5e-6, metavar='α', help='Learning rate')
+parser.add_argument('--value_learning-rate', type=float, default=1e-3, metavar='α', help='Learning rate')
+# parser.add_argument('--barrier_learning-rate', type=float, default=1e-3, metavar='α', help='Learning rate')
+parser.add_argument('--controller_learning-rate', type=float, default=1e-3, metavar='α', help='Learning rate')
 parser.add_argument(
     '--learning-rate-schedule',
     type=int,
@@ -247,18 +247,24 @@ param_list = (
     + list(encoder.parameters())
 )
 value_barrier_controller_param_list = list(value_model.parameters()) + list(barrier_model.parameters()) + list(controller.parameters())
+cbf_params_list = (list(barrier_model.parameter()) + list(controller.parameters()))
 params_list = param_list + value_barrier_controller_param_list
 print("transition, observation, reward, encoder, barrier, controller, value models are ready")
 model_optimizer = optim.Adam(
     param_list, lr=0 if args.learning_rate_schedule != 0 else args.model_learning_rate, eps=args.adam_epsilon
 )
-barrier_optimizer = optim.Adam(
-    barrier_model.parameters(),
-    lr=0 if args.learning_rate_schedule != 0 else args.barrier_learning_rate,
-    eps=args.adam_epsilon,
-)
-controller_optimizer = optim.Adam(
-    barrier_model.parameters(),
+# barrier_optimizer = optim.Adam(
+#     barrier_model.parameters(),
+#     lr=0 if args.learning_rate_schedule != 0 else args.barrier_learning_rate,
+#     eps=args.adam_epsilon,
+# )
+# controller_optimizer = optim.Adam(
+#     barrier_model.parameters(),
+#     lr=0 if args.learning_rate_schedule != 0 else args.controller_learning_rate,
+#     eps=args.adam_epsilon,
+# )
+cbf_optimizer = optim.Adam(
+    cbf_params_list,
     lr=0 if args.learning_rate_schedule != 0 else args.controller_learning_rate,
     eps=args.adam_epsilon,
 )
@@ -379,7 +385,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     # Model fitting
     losses = []
     model_modules = transition_model.modules + encoder.modules + observation_model.modules + reward_model.modules + cost_model.modules
-
+    cbf_modules = controller + barrier_model
     print("training loop")
     for s in tqdm(range(args.collect_interval)):
         # Draw sequence chunks {(o_t, a_t, r_t+1, terminal_t+1)} ~ D uniformly at random from the dataset (including terminal flags)
@@ -553,27 +559,19 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         returns = lambda_return(
             imged_reward, value_pred, bootstrap=value_pred[-1], discount=args.discount, lambda_=args.disclam
         )
-        # controller_loss = - torch.mean(torch.sum(returns, dim=0))
-        # print(imged_beliefs.size())
-        # print(value_pred.size())
-        # print(imged_reward.size())
-        # print(returns.size())
-        # print(imged_barrier.size())
+        controller_loss = - torch.mean(torch.sum(returns, dim=0))
         barrier_return = loss_barrier(imged_cost, imged_barrier, args.cost_threshold, args.epsilon)
         barrier_loss = torch.mean(barrier_return)
         # print(barrier_loss.item())
-        controller_loss = args.eta * barrier_loss - torch.mean(torch.sum(returns, dim=0))
+        cbf_loss = args.eta * barrier_loss + controller_loss
         
         # Update model parameters
         
-        barrier_optimizer.zero_grad()
-        controller_optimizer.zero_grad()
-        controller_loss.backward()
-        nn.utils.clip_grad_norm_(controller.parameters(), args.grad_clip_norm, norm_type=2)
-        nn.utils.clip_grad_norm_(barrier_model.parameters(), args.grad_clip_norm, norm_type=2)
-        controller_optimizer.step()
-
-        barrier_optimizer.step()
+        cbf_optimizer.zero_grad()
+        cbf_loss.backward()
+        # nn.utils.clip_grad_norm_(controller.parameters(), args.grad_clip_norm, norm_type=2)
+        nn.utils.clip_grad_norm_(cbf_params_list, args.grad_clip_norm, norm_type=2)
+        cbf_optimizer.step()
 
         # CBF-Dreamer implementation: value loss calculation and optimization
         # Barrier function network training  ss
@@ -779,8 +777,9 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 # 'actor_model': actor_model.state_dict(),
                 'value_model': value_model.state_dict(),
                 'model_optimizer': model_optimizer.state_dict(),
-                'barrier_optimizer': barrier_optimizer.state_dict(),
-                'controller_optimizer': controller_optimizer.state_dict(),
+                'cbf_optimizer': cbf_optimizer.state_dict(),
+                # 'barrier_optimizer': barrier_optimizer.state_dict(),
+                # 'controller_optimizer': controller_optimizer.state_dict(),
                 # 'actor_optimizer': actor_optimizer.state_dict(),
                 'value_optimizer': value_optimizer.state_dict(),
             },
