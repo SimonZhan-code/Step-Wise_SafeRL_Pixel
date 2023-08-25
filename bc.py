@@ -15,7 +15,7 @@ from modules.env import CONTROL_SUITE_ENVS, GYM_ENVS, SAFETY_GYM_ENVS, Env, EnvB
 from utils.memory import ExperienceReplay
 from modules.models import ActorModel, Encoder, ObservationModel, RewardModel, TransitionModel, ValueModel, bottle, CostModel
 from modules.planner import MPCPlanner, Controller, BarrierNN
-from utils.utils import FreezeParameters, lambda_return, lineplot, write_video, imagine_ahead, loss_barrier
+from utils.utils import FreezeParameters, lambda_return, lineplot, write_video, imagine_ahead, barrier_loss_return
 
 # _eta = 0.01
 
@@ -33,7 +33,7 @@ parser.add_argument(
     choices=SAFETY_GYM_ENVS,
     help='Safety_GYM_Env',
 )
-parser.add_argument('--eta', type=float, default=10, help='Eta on safety parameter')
+parser.add_argument('--eta', type=float, default=0.1, help='Eta on safety parameter')
 parser.add_argument('--epsilon', type=float, default=0.01, help='Margin used to find bc')
 parser.add_argument('--observation_type', default='rgb_image')
 parser.add_argument('--symbolic-env', action='store_true', help='Symbolic features')
@@ -68,8 +68,8 @@ parser.add_argument('--episodes', type=int, default=100, metavar='E', help='Tota
 parser.add_argument('--seed-episodes', type=int, default=5, metavar='S', help='Seed episodes')
 parser.add_argument('--collect-interval', type=int, default=500, metavar='C', help='Collect interval')
 # Experiment Tuning here
-parser.add_argument('--batch-size', type=int, default=25, metavar='B', help='Batch size')
-parser.add_argument('--chunk-size', type=int, default=25, metavar='L', help='Chunk size')
+parser.add_argument('--batch-size', type=int, default=50, metavar='B', help='Batch size')
+parser.add_argument('--chunk-size', type=int, default=50, metavar='L', help='Chunk size')
 parser.add_argument(
     '--worldmodel-LogProbLoss',
     action='store_true',
@@ -105,7 +105,7 @@ parser.add_argument('--model_learning-rate', type=float, default=1e-4, metavar='
 # parser.add_argument('--cost_learning-rate', type=float, default=8e-5, metavar='α', help='Learning rate')
 
 parser.add_argument('--value_learning-rate', type=float, default=1e-3, metavar='α', help='Learning rate')
-# parser.add_argument('--barrier_learning-rate', type=float, default=1e-3, metavar='α', help='Learning rate')
+parser.add_argument('--barrier_learning-rate', type=float, default=1e-3, metavar='α', help='Learning rate')
 parser.add_argument('--controller_learning-rate', type=float, default=1e-3, metavar='α', help='Learning rate')
 parser.add_argument(
     '--learning-rate-schedule',
@@ -247,22 +247,25 @@ param_list = (
     + list(encoder.parameters())
 )
 value_barrier_controller_param_list = list(value_model.parameters()) + list(barrier_model.parameters()) + list(controller.parameters())
-cbf_params_list = (list(barrier_model.parameter()) + list(controller.parameters()))
+cbf_params_list = (
+    list(barrier_model.parameters()) 
+    + list(controller.parameters())
+)
 params_list = param_list + value_barrier_controller_param_list
 print("transition, observation, reward, encoder, barrier, controller, value models are ready")
 model_optimizer = optim.Adam(
     param_list, lr=0 if args.learning_rate_schedule != 0 else args.model_learning_rate, eps=args.adam_epsilon
 )
-# barrier_optimizer = optim.Adam(
-#     barrier_model.parameters(),
-#     lr=0 if args.learning_rate_schedule != 0 else args.barrier_learning_rate,
-#     eps=args.adam_epsilon,
-# )
-# controller_optimizer = optim.Adam(
-#     barrier_model.parameters(),
-#     lr=0 if args.learning_rate_schedule != 0 else args.controller_learning_rate,
-#     eps=args.adam_epsilon,
-# )
+barrier_optimizer = optim.Adam(
+    barrier_model.parameters(),
+    lr=0 if args.learning_rate_schedule != 0 else args.barrier_learning_rate,
+    eps=args.adam_epsilon,
+)
+controller_optimizer = optim.Adam(
+    barrier_model.parameters(),
+    lr=0 if args.learning_rate_schedule != 0 else args.controller_learning_rate,
+    eps=args.adam_epsilon,
+)
 cbf_optimizer = optim.Adam(
     cbf_params_list,
     lr=0 if args.learning_rate_schedule != 0 else args.controller_learning_rate,
@@ -385,7 +388,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     # Model fitting
     losses = []
     model_modules = transition_model.modules + encoder.modules + observation_model.modules + reward_model.modules + cost_model.modules
-    cbf_modules = controller + barrier_model
+    cbf_modules = controller.modules + barrier_model.modules
     print("training loop")
     for s in tqdm(range(args.collect_interval)):
         # Draw sequence chunks {(o_t, a_t, r_t+1, terminal_t+1)} ~ D uniformly at random from the dataset (including terminal flags)
@@ -531,7 +534,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         model_loss.backward()
         nn.utils.clip_grad_norm_(param_list, args.grad_clip_norm, norm_type=2)
         model_optimizer.step()
-
+        
         ## CBF-Dreamer implementation: Jointly train the Barrier Certificate and Controller
 
         #  Retrieve imageined trajectories
@@ -546,36 +549,47 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
             )
         imged_beliefs, imged_prior_states, imged_prior_means, imged_prior_std_devs = imagination_traj
 
-        # Retrieve imageined rewards and pred values function
+        
+        # Calculate the Barrier loss and update the barrier_model
+        # Retrieve imageined safety costs pred
+        with FreezeParameters(model_modules + cbf_modules):
+            imged_cost = bottle(cost_model, (imged_beliefs, imged_prior_states))
+            imged_barrier = bottle(barrier_model, (imged_beliefs, imged_prior_states))
+        
         with FreezeParameters(model_modules + value_model.modules):
             imged_reward = bottle(reward_model, (imged_beliefs, imged_prior_states))
             value_pred = bottle(value_model, (imged_beliefs, imged_prior_states))
 
-        # Retrieve imageined safety costs pred
-        with FreezeParameters(model_modules + barrier_model.modules):
-            imged_cost = bottle(cost_model, (imged_beliefs, imged_prior_states))
-            imged_barrier = bottle(barrier_model, (imged_beliefs, imged_prior_states))
-
         returns = lambda_return(
             imged_reward, value_pred, bootstrap=value_pred[-1], discount=args.discount, lambda_=args.disclam
         )
-        controller_loss = - torch.mean(torch.sum(returns, dim=0))
-        barrier_return = loss_barrier(imged_cost, imged_barrier, args.cost_threshold, args.epsilon)
-        barrier_loss = torch.mean(barrier_return)
-        # print(barrier_loss.item())
-        cbf_loss = args.eta * barrier_loss + controller_loss
-        
-        # Update model parameters
-        
+
+        controller_return = - torch.mean(torch.sum(returns, dim=0))     
+        barrier_return = barrier_loss_return(imged_cost, imged_barrier, args.cost_threshold, args.epsilon)
+        # print(imged_cost.shape, imged_barrier.shape, torch.sum(barrier_return, dim=0).shape)
+        barrier_loss = torch.mean(torch.sum(barrier_return, dim=1))
+        # print(f'barrier_loss grad is: {barrier_loss.requires_grad}\n')
+        print(f'Barrier loss: {barrier_loss}\n')
+        # print(f'Controller loss: {type(controller_loss)}\n')
+        controller_loss = args.eta * barrier_loss + controller_return
+        # print(controller_loss.requires_grad)
         cbf_optimizer.zero_grad()
-        cbf_loss.backward()
-        # nn.utils.clip_grad_norm_(controller.parameters(), args.grad_clip_norm, norm_type=2)
+        # cbf_loss.retain_grad()
+        controller_loss.backward()
         nn.utils.clip_grad_norm_(cbf_params_list, args.grad_clip_norm, norm_type=2)
         cbf_optimizer.step()
+        # print(controller.modules[0].weight.grad)
+        # print(f'CBF Loss: {controller_loss}\n')
+        # print(f'Barrier Loss: {barrier_loss}\n')
+
+        # print(barrier_model.modules[0].weight.grad)
+        # Calculate the Controller loss and update the controller 
+        # Retrieve imageined rewards and pred values function
+        
+
+
 
         # CBF-Dreamer implementation: value loss calculation and optimization
-        # Barrier function network training  ss
-        
         # Value function network training 
         with torch.no_grad():
             value_beliefs = imged_beliefs.detach()
