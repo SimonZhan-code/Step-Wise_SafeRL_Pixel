@@ -128,10 +128,10 @@ def lambda_return(imged_reward, value_pred, bootstrap, discount=0.99, lambda_=0.
     outputs = list(reversed(outputs))
     outputs = torch.stack(outputs, 0)
     returns = outputs
-    # print(returns.size())
+    print(returns)
     return returns
 
-# Out-dated Barrier Calculation Function 
+# Out-dated Barrier Loss Calculation Function 
 def loss_barrier(imged_cost, barrier_pred, COST_THRESHOLD,  _epsilon, _DT = 0.002):
     safe = True
     losses = []
@@ -168,6 +168,7 @@ def loss_barrier(imged_cost, barrier_pred, COST_THRESHOLD,  _epsilon, _DT = 0.00
     return losses
 
 
+# Tensor Calculation based faster version barrier loss function
 def barrier_loss_return(imged_cost, barrier_prev, COST_THRESHOLD, _epsilon, _DT = 0.02):
     imged_cost = torch.transpose(imged_cost, 0, 1)
     barrier_prev = torch.transpose(barrier_prev, 0, 1)
@@ -186,18 +187,22 @@ def barrier_loss_return(imged_cost, barrier_prev, COST_THRESHOLD, _epsilon, _DT 
     cost_barrier_derivative = F.relu(cost_barrier[1:] - derivative - barrier_prev[1:])
     supp = torch.zeros((1, cost_barrier_derivative.shape[1]), device='cuda')
     cost_barrier_derivative = torch.cat([supp, cost_barrier_derivative])
+    # print(cost_barrier_derivative.grad_fn)
     # Safe state is 0, correctly categorized unsafe state is negative, and wrongly categorized unsafe state is positive
     cost_barrier_unsafe_mask = torch.div(F.relu(barrier_prev * unsafe_mask), barrier_prev)
     cost_barrier_unsafe_mask = cost_barrier_unsafe_mask.bool().int()
     epsilon_unsafe_mask = _epsilon * cost_barrier_unsafe_mask
     cost_barrier_unsafe = cost_barrier_unsafe_mask * barrier_prev - epsilon_unsafe_mask
+    # print(cost_barrier_unsafe.grad_fn)
     # Unsafe state is 0, correctly categorized safe state is positive, and wrongly categorized safe state is negative
     cost_barrier_safe_mask = torch.div(F.relu(- safe_mask * barrier_prev), barrier_prev)
     cost_barrier_safe_mask = cost_barrier_safe_mask.bool().int()
     epsilon_safe_mask = _epsilon * cost_barrier_safe_mask
     cost_barrier_safe = epsilon_safe_mask - cost_barrier_safe_mask * barrier_prev
+    # print(cost_barrier_safe.grad_fn)
     # Ensemble all the cost together
     loss = cost_barrier_derivative + cost_barrier_safe + cost_barrier_unsafe
+    # print(loss)
     return loss
 
 
