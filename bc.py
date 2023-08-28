@@ -23,7 +23,7 @@ from utils.utils import FreezeParameters, lambda_return, lineplot, write_video, 
 parser = argparse.ArgumentParser(description='CBF-Dreamer')
 parser.add_argument('--algo', type=str, default='cbf-dreamer', help='cbf-dreamer')
 parser.add_argument('--id', type=str, default='default', help='Experiment ID')
-parser.add_argument('--cost_threshold', type=float, default=0.5, help='Threshold to distinguish safe and unsafe region')
+parser.add_argument('--cost_threshold', type=float, default=0.1, help='Threshold to distinguish safe and unsafe region')
 parser.add_argument('--seed', type=int, default=1, metavar='S', help='Random seed')
 parser.add_argument('--disable-cuda', action='store_true', help='Disable CUDA')
 parser.add_argument(
@@ -33,7 +33,7 @@ parser.add_argument(
     choices=SAFETY_GYM_ENVS,
     help='Safety_GYM_Env',
 )
-parser.add_argument('--eta', type=float, default=1, help='Eta on safety parameter')
+parser.add_argument('--eta', type=float, default=10, help='Eta on safety parameter')
 parser.add_argument('--epsilon', type=float, default=0.1, help='Margin used to find bc')
 parser.add_argument('--observation_type', default='rgb_image')
 parser.add_argument('--symbolic-env', action='store_true', help='Symbolic features')
@@ -96,7 +96,7 @@ parser.add_argument(
     metavar='R>1',
     help='Latent overshooting reward prediction weight for t > 1 (0 to disable)',
 )
-parser.add_argument('--global-kl-beta', type=float, default=1, metavar='βg', help='Global KL weight (0 to disable)')
+parser.add_argument('--global-kl-beta', type=float, default=0, metavar='βg', help='Global KL weight (0 to disable)')
 parser.add_argument('--free-nats', type=float, default=3, metavar='F', help='Free nats')
 parser.add_argument('--bit-depth', type=int, default=5, metavar='B', help='Image bit depth (quantisation)')
 ## Tuning parameters
@@ -105,8 +105,8 @@ parser.add_argument('--model_learning-rate', type=float, default=1e-3, metavar='
 # parser.add_argument('--cost_learning-rate', type=float, default=8e-5, metavar='α', help='Learning rate')
 
 parser.add_argument('--value_learning-rate', type=float, default=8e-5, metavar='α', help='Learning rate')
-parser.add_argument('--barrier_learning-rate', type=float, default=8e-5, metavar='α', help='Learning rate')
-parser.add_argument('--controller_learning-rate', type=float, default=1e-3, metavar='α', help='Learning rate')
+parser.add_argument('--barrier_learning-rate', type=float, default=8e-4, metavar='α', help='Learning rate')
+parser.add_argument('--controller_learning-rate', type=float, default=1e-2, metavar='α', help='Learning rate')
 parser.add_argument(
     '--learning-rate-schedule',
     type=int,
@@ -157,8 +157,10 @@ metrics = {
     'steps': [],
     'episodes': [],
     'train_rewards': [],
+    'train_costs': [],
     'test_episodes': [],
     'test_rewards': [],
+    'test_costs': [],
     'observation_loss': [],
     'reward_loss': [],
     'cost_loss': [],
@@ -636,7 +638,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     # Data collection
     print("Data collection")
     with torch.no_grad():
-        observation, total_reward = env.reset(), 0
+        observation, total_reward, total_costs = env.reset(), 0, 0
         belief, posterior_state, action = (
             torch.zeros(1, args.belief_size, device=args.device),
             torch.zeros(1, args.state_size, device=args.device),
@@ -659,6 +661,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
             )
             D.append(observation, action.cpu(), reward, done, cost)
             total_reward += reward
+            total_costs += cost
             observation = next_observation
             # if args.render:
             #     env.render()
@@ -670,10 +673,17 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         metrics['steps'].append(t + metrics['steps'][-1])
         metrics['episodes'].append(episode)
         metrics['train_rewards'].append(total_reward)
+        metrics['train_costs'].append(total_cost)
         lineplot(
             metrics['episodes'][-len(metrics['train_rewards']) :],
             metrics['train_rewards'],
             'train_rewards',
+            results_dir,
+        )
+        lineplot(
+            metrics['episodes'][-len(metrics['train_costs']) :],
+            metrics['train_costs'],
+            'train_costs',
             results_dir,
         )
 
@@ -699,7 +709,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         )
 
         with torch.no_grad():
-            observation, total_rewards, video_frames = test_envs.reset(), np.zeros((args.test_episodes,)), []
+            observation, total_rewards, total_costs, video_frames = test_envs.reset(), np.zeros((args.test_episodes,)), np.zeros((args.test_episodes,)), []
             belief, posterior_state, action = (
                 torch.zeros(args.test_episodes, args.belief_size, device=args.device),
                 torch.zeros(args.test_episodes, args.state_size, device=args.device),
@@ -719,6 +729,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                     observation.to(device=args.device),
                 )
                 total_rewards += reward.numpy()
+                total_costs += cost.numpy()
                 if not args.symbolic_env:  # Collect real vs. predicted frames for video
                     video_frames.append(
                         make_grid(
@@ -734,7 +745,9 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         # Update and plot reward metrics (and write video if applicable) and save metrics
         metrics['test_episodes'].append(episode)
         metrics['test_rewards'].append(total_rewards.tolist())
+        metrics['test_costs'].append(total_costs.tolist())
         lineplot(metrics['test_episodes'], metrics['test_rewards'], 'test_rewards', results_dir)
+        lineplot(metrics['test_episodes'], metrics['test_costs'], 'test_costs', results_dir)
         lineplot(
             np.asarray(metrics['steps'])[np.asarray(metrics['test_episodes']) - 1],
             metrics['test_rewards'],
@@ -763,6 +776,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         test_envs.close()
 
     writer.add_scalar("train_reward", metrics['train_rewards'][-1], metrics['steps'][-1])
+    writer.add_scalar("train_cost", metrics['train_costs'][-1], metrics['steps'][-1])    
     writer.add_scalar("train/episode_reward", metrics['train_rewards'][-1], metrics['steps'][-1] * args.action_repeat)
     writer.add_scalar("observation_loss", metrics['observation_loss'][0][-1], metrics['steps'][-1])
     writer.add_scalar("reward_loss", metrics['reward_loss'][0][-1], metrics['steps'][-1])
@@ -773,8 +787,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     # writer.add_scalar("actor_loss", metrics['actor_loss'][0][-1], metrics['steps'][-1])
     writer.add_scalar("value_loss", metrics['value_loss'][0][-1], metrics['steps'][-1])
     print(
-        "episodes: {}, total_steps: {}, train_reward: {}".format(
-            metrics['episodes'][-1], metrics['steps'][-1], metrics['train_rewards'][-1]
+        "episodes: {}, total_steps: {}, train_reward: {}, train_cost: {}".format(
+            metrics['episodes'][-1], metrics['steps'][-1], metrics['train_rewards'][-1], metrics['train_costs'][-1]
         )
     )
 
