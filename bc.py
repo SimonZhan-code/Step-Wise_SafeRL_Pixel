@@ -33,8 +33,8 @@ parser.add_argument(
     choices=SAFETY_GYM_ENVS,
     help='Safety_GYM_Env',
 )
-parser.add_argument('--eta', type=float, default=10, help='Eta on safety parameter')
-parser.add_argument('--epsilon', type=float, default=0.01, help='Margin used to find bc')
+parser.add_argument('--eta', type=float, default=1, help='Eta on safety parameter')
+parser.add_argument('--epsilon', type=float, default=0.1, help='Margin used to find bc')
 parser.add_argument('--observation_type', default='rgb_image')
 parser.add_argument('--symbolic-env', action='store_true', help='Symbolic features')
 parser.add_argument('--max-episode-length', type=int, default=1000, metavar='T', help='Max episode length')
@@ -100,12 +100,12 @@ parser.add_argument('--global-kl-beta', type=float, default=1, metavar='βg', he
 parser.add_argument('--free-nats', type=float, default=3, metavar='F', help='Free nats')
 parser.add_argument('--bit-depth', type=int, default=5, metavar='B', help='Image bit depth (quantisation)')
 ## Tuning parameters
-parser.add_argument('--model_learning-rate', type=float, default=1e-4, metavar='α', help='Learning rate')
+parser.add_argument('--model_learning-rate', type=float, default=1e-3, metavar='α', help='Learning rate')
 # parser.add_argument('--reward_learning-rate', type=float, default=8e-5, metavar='α', help='Learning rate')
 # parser.add_argument('--cost_learning-rate', type=float, default=8e-5, metavar='α', help='Learning rate')
 
-parser.add_argument('--value_learning-rate', type=float, default=1e-3, metavar='α', help='Learning rate')
-parser.add_argument('--barrier_learning-rate', type=float, default=1e-3, metavar='α', help='Learning rate')
+parser.add_argument('--value_learning-rate', type=float, default=8e-5, metavar='α', help='Learning rate')
+parser.add_argument('--barrier_learning-rate', type=float, default=8e-5, metavar='α', help='Learning rate')
 parser.add_argument('--controller_learning-rate', type=float, default=1e-3, metavar='α', help='Learning rate')
 parser.add_argument(
     '--learning-rate-schedule',
@@ -206,6 +206,7 @@ transition_model = TransitionModel(
     args.embedding_size,
     args.dense_activation_function,
 ).to(device=args.device)
+
 observation_model = ObservationModel(
     args.symbolic_env,
     env.observation_size,
@@ -229,11 +230,11 @@ encoder = Encoder(args.symbolic_env, env.observation_size, args.embedding_size, 
     device=args.device
 )
 
-controller = Controller(args.belief_size, args.state_size, args.hidden_size, env.action_size).to(device=args.device)
+# controller = Controller(args.belief_size, args.state_size, args.hidden_size, env.action_size).to(device=args.device)
 
-# actor_model = ActorModel(
-#     args.belief_size, args.state_size, args.hidden_size, env.action_size, args.dense_activation_function
-# ).to(device=args.device)
+controller = ActorModel(
+    args.belief_size, args.state_size, args.hidden_size, env.action_size, args.dense_activation_function
+).to(device=args.device)
 
 value_model = ValueModel(args.belief_size, args.state_size, args.hidden_size, args.dense_activation_function).to(
     device=args.device
@@ -310,8 +311,9 @@ if args.models != '' and os.path.exists(args.models):
 #         transition_model,
 #         reward_model,
 #     )
+
 print("CBF-Dreamer")
-planner = controller
+# planner = controller
 
 global_prior = Normal(
     torch.zeros(args.batch_size, args.state_size, device=args.device),
@@ -371,7 +373,7 @@ if args.test:
                 belief, posterior_state, action, observation, reward, done, cost = update_belief_and_act(
                     args,
                     env,
-                    planner,
+                    controller,
                     transition_model,
                     encoder,
                     belief,
@@ -578,13 +580,18 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         barrier_return = barrier_loss_return(imged_cost, imged_barrier, args.cost_threshold, args.epsilon)
         barrier_loss = torch.mean(torch.sum(barrier_return, dim=1))
         controller_loss = args.eta * barrier_loss + controller_return
-        cbf_optimizer.zero_grad()
+        # cbf_optimizer.zero_grad()
+        controller_optimizer.zero_grad()
+        barrier_optimizer.zero_grad()
         controller_loss.backward()
-        nn.utils.clip_grad_norm_(cbf_params_list, args.grad_clip_norm, norm_type=2)
-        cbf_optimizer.step()
+        nn.utils.clip_grad_norm_(controller.parameters(), args.grad_clip_norm, norm_type=2)
+        nn.utils.clip_grad_norm_(barrier_model.parameters(), args.grad_clip_norm, norm_type=2)
+        controller_optimizer.step()
+        barrier_optimizer.step()
+        # cbf_optimizer.step()
         
-        print(controller.modules[0].weight.grad)
-        print(barrier_model.modules[0].weight.grad)
+        # print(controller.modules[0].weight.grad)
+        # print(barrier_model.modules[0].weight.grad)
 
 
         # CBF-Dreamer implementation: value loss calculation and optimization
@@ -618,12 +625,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     metrics['barrier_loss'].append(losses[4])
     metrics['controller_loss'].append(losses[5])
     metrics['value_loss'].append(losses[6])
-    lineplot(
-        metrics['episodes'][-len(metrics['observation_loss']) :],
-        metrics['observation_loss'],
-        'observation_loss',
-        results_dir,
-    )
+    lineplot(metrics['episodes'][-len(metrics['observation_loss']) :], metrics['observation_loss'], 'observation_loss', results_dir)
     lineplot(metrics['episodes'][-len(metrics['reward_loss']) :], metrics['reward_loss'], 'reward_loss', results_dir)
     lineplot(metrics['episodes'][-len(metrics['kl_loss']) :], metrics['kl_loss'], 'kl_loss', results_dir)
     lineplot(metrics['episodes'][-len(metrics['cost_loss']) :], metrics['cost_loss'], 'cost_loss', results_dir)
@@ -646,7 +648,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
             belief, posterior_state, action, next_observation, reward, done, cost = update_belief_and_act(
                 args,
                 env,
-                planner,
+                controller,
                 transition_model,
                 encoder,
                 belief,
@@ -708,7 +710,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 belief, posterior_state, action, next_observation, reward, done, cost = update_belief_and_act(
                     args,
                     test_envs,
-                    planner,
+                    controller,
                     transition_model,
                     encoder,
                     belief,
@@ -771,7 +773,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     # writer.add_scalar("actor_loss", metrics['actor_loss'][0][-1], metrics['steps'][-1])
     writer.add_scalar("value_loss", metrics['value_loss'][0][-1], metrics['steps'][-1])
     print(
-        "episodes: {}, total_steps: {}, train_reward: {} ".format(
+        "episodes: {}, total_steps: {}, train_reward: {}".format(
             metrics['episodes'][-1], metrics['steps'][-1], metrics['train_rewards'][-1]
         )
     )
@@ -789,9 +791,9 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 # 'actor_model': actor_model.state_dict(),
                 'value_model': value_model.state_dict(),
                 'model_optimizer': model_optimizer.state_dict(),
-                'cbf_optimizer': cbf_optimizer.state_dict(),
-                # 'barrier_optimizer': barrier_optimizer.state_dict(),
-                # 'controller_optimizer': controller_optimizer.state_dict(),
+                # 'cbf_optimizer': cbf_optimizer.state_dict(),
+                'barrier_optimizer': barrier_optimizer.state_dict(),
+                'controller_optimizer': controller_optimizer.state_dict(),
                 # 'actor_optimizer': actor_optimizer.state_dict(),
                 'value_optimizer': value_optimizer.state_dict(),
             },
