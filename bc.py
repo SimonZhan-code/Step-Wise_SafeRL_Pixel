@@ -673,7 +673,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         metrics['steps'].append(t + metrics['steps'][-1])
         metrics['episodes'].append(episode)
         metrics['train_rewards'].append(total_reward)
-        metrics['train_costs'].append(total_cost)
+        metrics['train_costs'].append(total_costs)
         lineplot(
             metrics['episodes'][-len(metrics['train_rewards']) :],
             metrics['train_rewards'],
