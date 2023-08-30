@@ -33,8 +33,8 @@ parser.add_argument(
     choices=SAFETY_GYM_ENVS,
     help='Safety_GYM_Env',
 )
-parser.add_argument('--eta', type=float, default=10, help='Eta on safety parameter')
-parser.add_argument('--epsilon', type=float, default=0.1, help='Margin used to find bc')
+parser.add_argument('--eta', type=float, default=1, help='Eta on safety parameter')
+parser.add_argument('--epsilon', type=float, default=1e-1, help='Margin used to find bc')
 parser.add_argument('--observation_type', default='rgb_image')
 parser.add_argument('--symbolic-env', action='store_true', help='Symbolic features')
 parser.add_argument('--max-episode-length', type=int, default=1000, metavar='T', help='Max episode length')
@@ -64,7 +64,7 @@ parser.add_argument('--state-size', type=int, default=30, metavar='Z', help='Sta
 parser.add_argument('--action-repeat', type=int, default=2, metavar='R', help='Action repeat')
 parser.add_argument('--action-noise', type=float, default=0.3, metavar='ε', help='Action noise')
 # Experiment Tuning here
-parser.add_argument('--episodes', type=int, default=100, metavar='E', help='Total number of episodes')
+parser.add_argument('--episodes', type=int, default=250, metavar='E', help='Total number of episodes')
 parser.add_argument('--seed-episodes', type=int, default=5, metavar='S', help='Seed episodes')
 parser.add_argument('--collect-interval', type=int, default=500, metavar='C', help='Collect interval')
 # Experiment Tuning here
@@ -100,13 +100,12 @@ parser.add_argument('--global-kl-beta', type=float, default=0, metavar='βg', he
 parser.add_argument('--free-nats', type=float, default=3, metavar='F', help='Free nats')
 parser.add_argument('--bit-depth', type=int, default=5, metavar='B', help='Image bit depth (quantisation)')
 ## Tuning parameters
-parser.add_argument('--model_learning-rate', type=float, default=1e-3, metavar='α', help='Learning rate')
-# parser.add_argument('--reward_learning-rate', type=float, default=8e-5, metavar='α', help='Learning rate')
-# parser.add_argument('--cost_learning-rate', type=float, default=8e-5, metavar='α', help='Learning rate')
+parser.add_argument('--model_learning_rate', type=float, default=1e-3, metavar='α', help='Learning rate')
 
-parser.add_argument('--value_learning-rate', type=float, default=8e-5, metavar='α', help='Learning rate')
-parser.add_argument('--barrier_learning-rate', type=float, default=8e-4, metavar='α', help='Learning rate')
-parser.add_argument('--controller_learning-rate', type=float, default=1e-2, metavar='α', help='Learning rate')
+parser.add_argument('--value_learning_rate', type=float, default=8e-5, metavar='α', help='Learning rate')
+parser.add_argument('--barrier_learning_rate', type=float, default=8e-4, metavar='α', help='Learning rate')
+parser.add_argument('--controller_learning_rate', type=float, default=1e-3, metavar='α', help='Learning rate')
+parser.add_argument('--cbf_learning_rate', type=float, default=8e-5, metavar='α', help='Learning rate')
 parser.add_argument(
     '--learning-rate-schedule',
     type=int,
@@ -118,7 +117,7 @@ parser.add_argument('--adam-epsilon', type=float, default=1e-7, metavar='ε', he
 # Note that original has a linear learning rate decay, but it seems unlikely that this makes a significant difference
 parser.add_argument('--grad-clip-norm', type=float, default=100.0, metavar='C', help='Gradient clipping norm')
 
-parser.add_argument('--planning-horizon', type=int, default=15, metavar='H', help='Planning horizon distance')
+parser.add_argument('--planning-horizon', type=int, default=200, metavar='H', help='Planning horizon distance')
 parser.add_argument('--discount', type=float, default=0.99, metavar='H', help='Planning horizon distance')
 parser.add_argument('--disclam', type=float, default=0.95, metavar='H', help='discount rate to compute return')
 parser.add_argument('--optimisation-iters', type=int, default=10, metavar='I', help='Planning optimisation iterations')
@@ -276,7 +275,7 @@ controller_optimizer = optim.Adam(
 
 cbf_optimizer = optim.Adam(
     cbf_params_list,
-    lr=0 if args.learning_rate_schedule != 0 else args.controller_learning_rate,
+    lr=0 if args.learning_rate_schedule != 0 else args.cbf_learning_rate,
     eps=args.adam_epsilon,
 )
 
@@ -341,7 +340,7 @@ def update_belief_and_act(
     # else:
     #     action = planner(belief, posterior_state)  # Get action from planner(q(s_t|o≤t,a<t), p)
     # # Input state for planner forward and generate action
-    action = planner.get_action(belief, posterior_state)
+    action = planner.get_action(belief, posterior_state, det=explore)
 
     if explore:
         action = torch.clamp(
@@ -382,6 +381,7 @@ if args.test:
                     posterior_state,
                     action,
                     observation.to(device=args.device),
+                    explore=True
                 )
                 total_reward += reward
                 if args.render:
@@ -575,23 +575,29 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
             imged_reward, value_pred, bootstrap=value_pred[-1], discount=args.discount, lambda_=args.disclam
         )
 
-        controller_return = - torch.mean(torch.sum(returns, dim=0))     
-                
         imged_barrier = bottle(barrier_model, (imged_beliefs, imged_prior_states))
 
+        controller_return = - torch.mean(torch.sum(returns, dim=0))   
         barrier_return = barrier_loss_return(imged_cost, imged_barrier, args.cost_threshold, args.epsilon)
-        barrier_loss = torch.mean(torch.sum(barrier_return, dim=1))
-        controller_loss = args.eta * barrier_loss + controller_return
-        # cbf_optimizer.zero_grad()
-        controller_optimizer.zero_grad()
-        barrier_optimizer.zero_grad()
+        barrier_loss = torch.mean(torch.sum(barrier_return, dim=0))            
+                
+        controller_loss = controller_return + args.eta * barrier_loss
+        cbf_optimizer.zero_grad()
+        # controller_optimizer.zero_grad()
+       
         controller_loss.backward()
-        nn.utils.clip_grad_norm_(controller.parameters(), args.grad_clip_norm, norm_type=2)
-        nn.utils.clip_grad_norm_(barrier_model.parameters(), args.grad_clip_norm, norm_type=2)
-        controller_optimizer.step()
-        barrier_optimizer.step()
-        # cbf_optimizer.step()
         
+        nn.utils.clip_grad_norm_(cbf_params_list, args.grad_clip_norm, norm_type=2)    
+        # nn.utils.clip_grad_norm_(controller.parameters(), args.grad_clip_norm, norm_type=2)
+        # controller_optimizer.step()
+        
+        cbf_optimizer.step()
+        
+        
+        # barrier_optimizer.zero_grad()
+        # barrier_loss.backward()
+        # nn.utils.clip_grad_norm_(barrier_model.parameters(), args.grad_clip_norm, norm_type=2)
+        # barrier_optimizer.step()
         # print(controller.modules[0].weight.grad)
         # print(barrier_model.modules[0].weight.grad)
 
@@ -657,7 +663,6 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 posterior_state,
                 action,
                 observation.to(device=args.device),
-                explore=True,
             )
             D.append(observation, action.cpu(), reward, done, cost)
             total_reward += reward
@@ -727,6 +732,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                     posterior_state,
                     action,
                     observation.to(device=args.device),
+                    explore=True
                 )
                 total_rewards += reward.numpy()
                 total_costs += cost.numpy()
