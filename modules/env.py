@@ -34,6 +34,15 @@ SAFETY_GYM_ENVS = [
     'Safexp-PointPush0-v0',
     'Safexp-PointPush1-v0',
     'Safexp-PointPush2-v0',
+    'Safexp-CarGoal0-v0',
+    'Safexp-CarGoal1-v0',
+    'Safexp-CarGoal2-v0',
+    'Safexp-CarButton0-v0',
+    'Safexp-CarButton1-v0',
+    'Safexp-CarButton2-v0',
+    'Safexp-CarPush0-v0',
+    'Safexp-CarPush1-v0',
+    'Safexp-CarPush2-v0',
 ]
 CONTROL_SUITE_ENVS = [
     'cartpole-balance',
