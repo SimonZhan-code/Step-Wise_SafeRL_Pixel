@@ -214,7 +214,6 @@ class CostModel(jit.ScriptModule):
         return cost
 
 
-
 class ValueModel(jit.ScriptModule):
     def __init__(self, belief_size, state_size, hidden_size, activation_function='relu'):
         super().__init__()
@@ -235,7 +234,7 @@ class ValueModel(jit.ScriptModule):
         return reward
 
 
-class ActorModel(jit.ScriptModule):
+class Controller_stoch(jit.ScriptModule):
     def __init__(
         self,
         belief_size,
@@ -283,8 +282,8 @@ class ActorModel(jit.ScriptModule):
         dist = TransformedDistribution(dist, TanhBijector())
         dist = torch.distributions.Independent(dist, 1)
         dist = SampleDist(dist)
-        if det:
-            return dist.mode()
+        if det:  
+            return dist.mean()
         else:
             return dist.rsample()
 
@@ -380,7 +379,8 @@ class SampleDist:
         return getattr(self._dist, name)
 
     def mean(self):
-        sample = self._dist.rsample()
+        dist = self._dist.expand((self._samples, *self._dist.batch_shape))
+        sample = dist.rsample()
         return torch.mean(sample, 0)
 
     def mode(self):
