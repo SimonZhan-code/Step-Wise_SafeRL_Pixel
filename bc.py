@@ -13,7 +13,7 @@ from tqdm import tqdm
 
 from modules.env import CONTROL_SUITE_ENVS, GYM_ENVS, SAFETY_GYM_ENVS, Env, EnvBatcher
 from utils.memory import ExperienceReplay
-from modules.models import ActorModel, Encoder, ObservationModel, RewardModel, TransitionModel, ValueModel, bottle, CostModel
+from modules.models import Encoder, ObservationModel, RewardModel, TransitionModel, ValueModel, bottle, CostModel, Controller_stoch
 from modules.planner import MPCPlanner, Controller, BarrierNN
 from utils.utils import FreezeParameters, lambda_return, lineplot, write_video, imagine_ahead, barrier_loss_return
 
@@ -96,7 +96,7 @@ parser.add_argument(
     metavar='R>1',
     help='Latent overshooting reward prediction weight for t > 1 (0 to disable)',
 )
-parser.add_argument('--global-kl-beta', type=float, default=0, metavar='βg', help='Global KL weight (0 to disable)')
+parser.add_argument('--global-kl-beta', type=float, default=1, metavar='βg', help='Global KL weight (0 to disable)')
 parser.add_argument('--free-nats', type=float, default=3, metavar='F', help='Free nats')
 parser.add_argument('--bit-depth', type=int, default=5, metavar='B', help='Image bit depth (quantisation)')
 ## Tuning parameters
@@ -117,7 +117,7 @@ parser.add_argument('--adam-epsilon', type=float, default=1e-7, metavar='ε', he
 # Note that original has a linear learning rate decay, but it seems unlikely that this makes a significant difference
 parser.add_argument('--grad-clip-norm', type=float, default=100.0, metavar='C', help='Gradient clipping norm')
 
-parser.add_argument('--planning-horizon', type=int, default=200, metavar='H', help='Planning horizon distance')
+parser.add_argument('--planning-horizon', type=int, default=10, metavar='H', help='Planning horizon distance')
 parser.add_argument('--discount', type=float, default=0.99, metavar='H', help='Planning horizon distance')
 parser.add_argument('--disclam', type=float, default=0.95, metavar='H', help='discount rate to compute return')
 parser.add_argument('--optimisation-iters', type=int, default=10, metavar='I', help='Planning optimisation iterations')
@@ -233,7 +233,7 @@ encoder = Encoder(args.symbolic_env, env.observation_size, args.embedding_size, 
 
 # controller = Controller(args.belief_size, args.state_size, args.hidden_size, env.action_size).to(device=args.device)
 
-controller = ActorModel(
+controller = Controller_stoch(
     args.belief_size, args.state_size, args.hidden_size, env.action_size, args.dense_activation_function
 ).to(device=args.device)
 
@@ -298,23 +298,8 @@ if args.models != '' and os.path.exists(args.models):
     value_model.load_state_dict(model_dicts['value_model'])
     model_optimizer.load_state_dict(model_dicts['model_optimizer'])
 
-# if args.algo == "dreamer":
-#     print("DREAMER")
-#     planner = actor_model
-# else:
-#     print("PLANET")
-#     planner = MPCPlanner(
-#         env.action_size,
-#         args.planning_horizon,
-#         args.optimisation_iters,
-#         args.candidates,
-#         args.top_candidates,
-#         transition_model,
-#         reward_model,
-#     )
 
 print("CBF-Dreamer")
-# planner = controller
 
 global_prior = Normal(
     torch.zeros(args.batch_size, args.state_size, device=args.device),
@@ -381,7 +366,7 @@ if args.test:
                     posterior_state,
                     action,
                     observation.to(device=args.device),
-                    explore=True
+                    explore=False
                 )
                 total_reward += reward
                 if args.render:
@@ -663,6 +648,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 posterior_state,
                 action,
                 observation.to(device=args.device),
+                explore = True
             )
             D.append(observation, action.cpu(), reward, done, cost)
             total_reward += reward
@@ -732,7 +718,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                     posterior_state,
                     action,
                     observation.to(device=args.device),
-                    explore=True
+                    explore=False
                 )
                 total_rewards += reward.numpy()
                 total_costs += cost.numpy()
