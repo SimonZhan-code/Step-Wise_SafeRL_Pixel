@@ -215,18 +215,18 @@ class CostModel(jit.ScriptModule):
 
 
 class ValueModel(jit.ScriptModule):
-    def __init__(self, belief_size, state_size, hidden_size, activation_function='relu'):
+    def __init__(self, state_size, hidden_size, activation_function='relu'):
         super().__init__()
         self.act_fn = getattr(F, activation_function)
-        self.fc1 = nn.Linear(belief_size + state_size, hidden_size)
+        self.fc1 = nn.Linear(state_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
         self.fc3 = nn.Linear(hidden_size, hidden_size)
         self.fc4 = nn.Linear(hidden_size, 1)
         self.modules = [self.fc1, self.fc2, self.fc3, self.fc4]
 
     @jit.script_method
-    def forward(self, belief, state):
-        x = torch.cat([belief, state], dim=1)
+    def forward(self, state):
+        x = state
         hidden = self.act_fn(self.fc1(x))
         hidden = self.act_fn(self.fc2(hidden))
         hidden = self.act_fn(self.fc3(hidden))
@@ -237,7 +237,7 @@ class ValueModel(jit.ScriptModule):
 class Controller_stoch(jit.ScriptModule):
     def __init__(
         self,
-        belief_size,
+        # belief_size,
         state_size,
         hidden_size,
         action_size,
@@ -249,7 +249,7 @@ class Controller_stoch(jit.ScriptModule):
     ):
         super().__init__()
         self.act_fn = getattr(F, activation_function)
-        self.fc1 = nn.Linear(belief_size + state_size, hidden_size)
+        self.fc1 = nn.Linear(state_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
         self.fc3 = nn.Linear(hidden_size, hidden_size)
         self.fc4 = nn.Linear(hidden_size, hidden_size)
@@ -262,9 +262,9 @@ class Controller_stoch(jit.ScriptModule):
         self._mean_scale = mean_scale
 
     @jit.script_method
-    def forward(self, belief, state):
+    def forward(self, state):
         raw_init_std = torch.log(torch.exp(self._init_std) - 1)
-        x = torch.cat([belief, state], dim=1)
+        x = state
         hidden = self.act_fn(self.fc1(x))
         hidden = self.act_fn(self.fc2(hidden))
         hidden = self.act_fn(self.fc3(hidden))
@@ -276,14 +276,15 @@ class Controller_stoch(jit.ScriptModule):
         action_std = F.softplus(action_std_dev + raw_init_std) + self._min_std
         return action_mean, action_std
 
-    def get_action(self, belief, state, det=False):
-        action_mean, action_std = self.forward(belief, state)
+    def get_action(self, state, det=False):
+        action_mean, action_std = self.forward(state)
         dist = Normal(action_mean, action_std)
-        dist = TransformedDistribution(dist, TanhBijector())
+        # dist = TransformedDistribution(dist, TanhBijector())
         dist = torch.distributions.Independent(dist, 1)
         dist = SampleDist(dist)
+        # return dist.mode()
         if det:  
-            return dist.mean()
+            return dist.mode()
         else:
             return dist.rsample()
 

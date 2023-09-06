@@ -23,7 +23,7 @@ from utils.utils import FreezeParameters, lambda_return, lineplot, write_video, 
 parser = argparse.ArgumentParser(description='CBF-Dreamer')
 parser.add_argument('--algo', type=str, default='cbf-dreamer', help='cbf-dreamer')
 parser.add_argument('--id', type=str, default='default', help='Experiment ID')
-parser.add_argument('--cost_threshold', type=float, default=0.1, help='Threshold to distinguish safe and unsafe region')
+parser.add_argument('--cost_threshold', type=float, default=0.05, help='Threshold to distinguish safe and unsafe region')
 parser.add_argument('--seed', type=int, default=1, metavar='S', help='Random seed')
 parser.add_argument('--disable-cuda', action='store_true', help='Disable CUDA')
 parser.add_argument(
@@ -34,7 +34,7 @@ parser.add_argument(
     help='Safety_GYM_Env',
 )
 parser.add_argument('--eta', type=float, default=1, help='Eta on safety parameter')
-parser.add_argument('--epsilon', type=float, default=1e-1, help='Margin used to find bc')
+parser.add_argument('--epsilon', type=float, default=1e-5, help='Margin used to find bc')
 parser.add_argument('--observation_type', default='rgb_image')
 parser.add_argument('--symbolic-env', action='store_true', help='Symbolic features')
 parser.add_argument('--max-episode-length', type=int, default=1000, metavar='T', help='Max episode length')
@@ -65,7 +65,7 @@ parser.add_argument('--action-repeat', type=int, default=2, metavar='R', help='A
 parser.add_argument('--action-noise', type=float, default=0.3, metavar='ε', help='Action noise')
 # Experiment Tuning here
 parser.add_argument('--episodes', type=int, default=250, metavar='E', help='Total number of episodes')
-parser.add_argument('--seed-episodes', type=int, default=5, metavar='S', help='Seed episodes')
+parser.add_argument('--seed-episodes', type=int, default=1, metavar='S', help='Seed episodes')
 parser.add_argument('--collect-interval', type=int, default=500, metavar='C', help='Collect interval')
 # Experiment Tuning here
 parser.add_argument('--batch-size', type=int, default=50, metavar='B', help='Batch size')
@@ -96,7 +96,7 @@ parser.add_argument(
     metavar='R>1',
     help='Latent overshooting reward prediction weight for t > 1 (0 to disable)',
 )
-parser.add_argument('--global-kl-beta', type=float, default=1, metavar='βg', help='Global KL weight (0 to disable)')
+parser.add_argument('--global-kl-beta', type=float, default=0, metavar='βg', help='Global KL weight (0 to disable)')
 parser.add_argument('--free-nats', type=float, default=3, metavar='F', help='Free nats')
 parser.add_argument('--bit-depth', type=int, default=5, metavar='B', help='Image bit depth (quantisation)')
 ## Tuning parameters
@@ -320,12 +320,9 @@ def update_belief_and_act(
     belief, posterior_state = belief.squeeze(dim=0), posterior_state.squeeze(
         dim=0
     )  # Remove time dimension from belief/state
-    # if args.algo == "dreamer":
-    #     action = planner.get_action(belief, posterior_state, det=not (explore))
-    # else:
-    #     action = planner(belief, posterior_state)  # Get action from planner(q(s_t|o≤t,a<t), p)
+   
     # # Input state for planner forward and generate action
-    action = planner.get_action(belief, posterior_state, det=explore)
+    action = planner.get_action(posterior_state, det=explore)
 
     if explore:
         action = torch.clamp(
@@ -386,6 +383,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     model_modules = transition_model.modules + encoder.modules + observation_model.modules + reward_model.modules + cost_model.modules
     cbf_modules = controller.modules + barrier_model.modules
     print("training loop")
+    # temp = torch.zeros(1, device=args.device)
     for s in tqdm(range(args.collect_interval)):
         # Draw sequence chunks {(o_t, a_t, r_t+1, terminal_t+1)} ~ D uniformly at random from the dataset (including terminal flags)
         observations, actions, rewards, costs, nonterminals = D.sample(
@@ -407,6 +405,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         ) = transition_model(
             init_state, actions[:-1], init_belief, bottle(encoder, (observations[1:],)), nonterminals[:-1]
         )
+        # print(posterior_states.size())
         # Calculate observation likelihood, reward likelihood and KL losses (for t = 0 only for latent overshooting); sum over final dims, average over batch and time (original implementation, though paper seems to miss 1/T scaling?)
         # Observation loss
         if args.worldmodel_LogProbLoss:
@@ -545,7 +544,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
             )
             
         imged_beliefs, imged_prior_states, imged_prior_means, imged_prior_std_devs = imagination_traj
-
+        # print(imged_prior_states.size())
         
         # Calculate the Barrier loss and Controller loss and update the barrier_model and controller
         # Retrieve imageined safety costs pred
@@ -554,18 +553,22 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 
         with FreezeParameters(model_modules + value_model.modules):
             imged_reward = bottle(reward_model, (imged_beliefs, imged_prior_states))
-            value_pred = bottle(value_model, (imged_beliefs, imged_prior_states))
+            value_pred = bottle(value_model, (imged_prior_states))
 
         returns = lambda_return(
             imged_reward, value_pred, bootstrap=value_pred[-1], discount=args.discount, lambda_=args.disclam
         )
 
-        imged_barrier = bottle(barrier_model, (imged_beliefs, imged_prior_states))
+        imged_barrier = bottle(barrier_model, (imged_prior_states))
+
+        # if torch.equal(imged_barrier, temp):
+        #     print("barrier value is the same")
+        # temp = imged_barrier
 
         controller_return = - torch.mean(torch.sum(returns, dim=0))   
         barrier_return = barrier_loss_return(imged_cost, imged_barrier, args.cost_threshold, args.epsilon)
         barrier_loss = torch.mean(torch.sum(barrier_return, dim=0))            
-                
+        # print(f'barrier_loss: {barrier_loss.item()}\n')
         controller_loss = controller_return + args.eta * barrier_loss
         cbf_optimizer.zero_grad()
         # controller_optimizer.zero_grad()
