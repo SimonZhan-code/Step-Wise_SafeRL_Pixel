@@ -17,6 +17,14 @@ def bottle(f, x_tuple):
     output = y.view(x_sizes[0][0], x_sizes[0][1], *y_size[1:])
     return output
 
+def get_through_NN(f, z):
+    z_size = z.size()
+    z_tuple = (z, z_size)
+    z_temp = z_tuple[0].view(z_tuple[1][0] * z_tuple[1][1], *z_tuple[1][2:])
+    y = f(z_temp)
+    y_size = y.size()
+    output = y.view(z_size[0], z_size[1], *y_size[1:])
+    return output
 
 class TransitionModel(jit.ScriptModule):
     __constants__ = ['min_std_dev']
@@ -237,7 +245,6 @@ class ValueModel(jit.ScriptModule):
 class Controller_stoch(jit.ScriptModule):
     def __init__(
         self,
-        # belief_size,
         state_size,
         hidden_size,
         action_size,
@@ -264,8 +271,7 @@ class Controller_stoch(jit.ScriptModule):
     @jit.script_method
     def forward(self, state):
         raw_init_std = torch.log(torch.exp(self._init_std) - 1)
-        x = state
-        hidden = self.act_fn(self.fc1(x))
+        hidden = self.act_fn(self.fc1(state))
         hidden = self.act_fn(self.fc2(hidden))
         hidden = self.act_fn(self.fc3(hidden))
         hidden = self.act_fn(self.fc4(hidden))

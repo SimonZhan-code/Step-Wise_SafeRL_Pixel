@@ -76,6 +76,7 @@ def imagine_ahead(prev_state, prev_belief, policy, transition_model, planning_ho
     flatten = lambda x: x.view([-1] + list(x.size()[2:]))
     prev_belief = flatten(prev_belief)
     prev_state = flatten(prev_state)
+    # print(prev_state.size())
 
     # Create lists for hidden states (cannot use single tensor as buffer because autograd won't work with inplace writes)
     T = planning_horizon
@@ -91,7 +92,7 @@ def imagine_ahead(prev_state, prev_belief, policy, transition_model, planning_ho
     # Loop over time sequence
     for t in range(T - 1):
         _state = prior_states[t]
-        actions = policy.get_action(beliefs[t].detach(), _state.detach())
+        actions = policy.get_action(_state.detach())
         # Compute belief (deterministic hidden state)
         hidden = transition_model.act_fn(transition_model.fc_embed_state_action(torch.cat([_state, actions], dim=1)))
         beliefs[t + 1] = transition_model.rnn(hidden, beliefs[t])
@@ -192,8 +193,10 @@ def barrier_loss_return(imged_cost, barrier_prev, COST_THRESHOLD, _epsilon, _DT 
     # Safe state is 0, correctly categorized unsafe state is negative, and wrongly categorized unsafe state is positive
     cost_barrier_unsafe_mask = torch.div(F.relu(barrier_prev * unsafe_mask), barrier_prev+sigma)
     cost_barrier_unsafe_mask = cost_barrier_unsafe_mask.bool().int()
+    # print(torch.all(cost_barrier_unsafe_mask>=0))
     epsilon_unsafe_mask = _epsilon * cost_barrier_unsafe_mask
-    cost_barrier_unsafe = cost_barrier_unsafe_mask * barrier_prev - epsilon_unsafe_mask
+    cost_barrier_unsafe = cost_barrier_unsafe_mask * barrier_prev + epsilon_unsafe_mask
+    # print(torch.all(cost_barrier_unsafe>=0))
     # print(cost_barrier_unsafe.grad_fn)
     # Unsafe state is 0, correctly categorized safe state is positive, and wrongly categorized safe state is negative
     cost_barrier_safe_mask = torch.div(F.relu(- safe_mask * barrier_prev), barrier_prev+sigma)
@@ -202,7 +205,10 @@ def barrier_loss_return(imged_cost, barrier_prev, COST_THRESHOLD, _epsilon, _DT 
     cost_barrier_safe = epsilon_safe_mask - cost_barrier_safe_mask * barrier_prev
     # print(cost_barrier_safe.grad_fn)
     # Ensemble all the cost together
-    loss = 100 * cost_barrier_derivative + cost_barrier_safe + cost_barrier_unsafe
+    loss = 1e2 * cost_barrier_derivative + 1e3 * cost_barrier_safe + 1e5 * cost_barrier_unsafe
+    print(f'safe_cost: {torch.mean(torch.sum(cost_barrier_safe, dim=0))}\n')
+    print(f'unsafe_cost: {torch.mean(torch.sum(cost_barrier_unsafe, dim=0))}\n')
+    print(f'barrier_deriv: {torch.mean(torch.sum(cost_barrier_derivative, dim=0))}\n')
     # print(loss)
     return loss
 

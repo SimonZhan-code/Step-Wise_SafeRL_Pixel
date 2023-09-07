@@ -13,7 +13,7 @@ from tqdm import tqdm
 
 from modules.env import CONTROL_SUITE_ENVS, GYM_ENVS, SAFETY_GYM_ENVS, Env, EnvBatcher
 from utils.memory import ExperienceReplay
-from modules.models import Encoder, ObservationModel, RewardModel, TransitionModel, ValueModel, bottle, CostModel, Controller_stoch
+from modules.models import Encoder, ObservationModel, RewardModel, TransitionModel, ValueModel, bottle, CostModel, Controller_stoch, get_through_NN
 from modules.planner import MPCPlanner, Controller, BarrierNN
 from utils.utils import FreezeParameters, lambda_return, lineplot, write_video, imagine_ahead, barrier_loss_return
 
@@ -34,7 +34,7 @@ parser.add_argument(
     help='Safety_GYM_Env',
 )
 parser.add_argument('--eta', type=float, default=1, help='Eta on safety parameter')
-parser.add_argument('--epsilon', type=float, default=1e-5, help='Margin used to find bc')
+parser.add_argument('--epsilon', type=float, default=1e-1, help='Margin used to find bc')
 parser.add_argument('--observation_type', default='rgb_image')
 parser.add_argument('--symbolic-env', action='store_true', help='Symbolic features')
 parser.add_argument('--max-episode-length', type=int, default=1000, metavar='T', help='Max episode length')
@@ -64,7 +64,7 @@ parser.add_argument('--state-size', type=int, default=30, metavar='Z', help='Sta
 parser.add_argument('--action-repeat', type=int, default=2, metavar='R', help='Action repeat')
 parser.add_argument('--action-noise', type=float, default=0.3, metavar='ε', help='Action noise')
 # Experiment Tuning here
-parser.add_argument('--episodes', type=int, default=250, metavar='E', help='Total number of episodes')
+parser.add_argument('--episodes', type=int, default=1000, metavar='E', help='Total number of episodes')
 parser.add_argument('--seed-episodes', type=int, default=1, metavar='S', help='Seed episodes')
 parser.add_argument('--collect-interval', type=int, default=500, metavar='C', help='Collect interval')
 # Experiment Tuning here
@@ -225,7 +225,7 @@ cost_model = CostModel(args.belief_size, args.state_size, args.hidden_size, args
     device=args.device
 )
 
-barrier_model = BarrierNN(args.belief_size, args.state_size, args.hidden_size).to(device=args.device)
+barrier_model = BarrierNN(args.state_size, args.hidden_size).to(device=args.device)
 
 encoder = Encoder(args.symbolic_env, env.observation_size, args.embedding_size, args.cnn_activation_function).to(
     device=args.device
@@ -234,10 +234,10 @@ encoder = Encoder(args.symbolic_env, env.observation_size, args.embedding_size, 
 # controller = Controller(args.belief_size, args.state_size, args.hidden_size, env.action_size).to(device=args.device)
 
 controller = Controller_stoch(
-    args.belief_size, args.state_size, args.hidden_size, env.action_size, args.dense_activation_function
+    args.state_size, args.hidden_size, env.action_size, args.dense_activation_function
 ).to(device=args.device)
 
-value_model = ValueModel(args.belief_size, args.state_size, args.hidden_size, args.dense_activation_function).to(
+value_model = ValueModel(args.state_size, args.hidden_size, args.dense_activation_function).to(
     device=args.device
 )
 
@@ -553,13 +553,15 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 
         with FreezeParameters(model_modules + value_model.modules):
             imged_reward = bottle(reward_model, (imged_beliefs, imged_prior_states))
-            value_pred = bottle(value_model, (imged_prior_states))
+            # print(imged_reward.size())
+            value_pred = get_through_NN(value_model, imged_prior_states)
+            print(value_pred.size())
 
         returns = lambda_return(
             imged_reward, value_pred, bootstrap=value_pred[-1], discount=args.discount, lambda_=args.disclam
         )
 
-        imged_barrier = bottle(barrier_model, (imged_prior_states))
+        imged_barrier = get_through_NN(barrier_model, imged_prior_states)
 
         # if torch.equal(imged_barrier, temp):
         #     print("barrier value is the same")
@@ -597,7 +599,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
             value_prior_states = imged_prior_states.detach()
             target_return = returns.detach()
         value_dist = Normal(
-            bottle(value_model, (value_beliefs, value_prior_states)), 1
+            get_through_NN(value_model, value_prior_states), 1
         )  # detach the input tensor from the transition network.
         value_loss = -value_dist.log_prob(target_return).mean(dim=(0, 1))
         # Update model parameters
