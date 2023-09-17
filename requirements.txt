@@ -31,7 +31,6 @@ Markdown==3.4.4
 MarkupSafe==2.1.3
 mpmath==1.3.0
 mujoco==2.3.7
-mujoco-py==2.1.2.14
 networkx==3.1
 numpy==1.24.4
 nvidia-cublas-cu11==11.10.3.66
@@ -60,7 +59,6 @@ pyparsing==3.1.1
 requests==2.31.0
 requests-oauthlib==1.3.1
 rsa==4.9
--e git+https://github.com/openai/safety-gym.git@f31042f2f9ee61b9034dd6a416955972911544f5#egg=safety_gym
 scipy==1.9.1
 six==1.16.0
 sympy==1.12
