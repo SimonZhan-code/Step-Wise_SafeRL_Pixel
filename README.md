@@ -1,21 +1,14 @@
 CBF Dreamer implementation in PyTorch
 ======
 
-[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
-
-
 ## Installation
 To install all dependencies with Anaconda run using the following commands. 
 
-`conda env create -n CBF-dreamer python=3.8` 
+`conda create -n CBF-dreamer python==3.8` 
 
 `pip install -r requirements.txt` 
 
 ## Training (e.g. Safexp-PointGoal0)
-To run naive Actor-Critic method(Original Dreamer)
-```bash
-python main.py --algo dreamer --env Safexp-PointGoal0-v0 --action-repeat 2 --id AC-Safexp-PointGoal0-v0-0
-```
 To run CBF-dreamer
 ```bash
 python bc.py --algo CBF-dreamer --env Safexp-PointGoal0-v0 --action-repeat 2 --id AC-Safexp-PointGoal0-v0-0
@@ -56,7 +49,5 @@ The performances are compared with the other SoTA algorithms as follows
 Pretrained models can be found in the [releases](https://github.com/Kaixhin/PlaNet/releases). -->
 
 ## Links
-- [Dream to Control: Learning Behaviors By latent Imagination](https://ai.googleblog.com/2020/03/introducing-dreamer-scalable.html)
-- [google-research/dreamer](https://github.com/google-research/dreamer)
 - [pytorch implementation of Dreamer](https://github.com/yusukeurakami/dreamer-pytorch)
 - [RSSM elaboration](https://arxiv.org/abs/1811.04551)
