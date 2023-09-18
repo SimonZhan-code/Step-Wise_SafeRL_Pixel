@@ -666,7 +666,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 break
 
         # Update and plot train reward metrics
-        metrics['steps'].append(self.collection_interval + metrics['steps'][-1])
+        metrics['steps'].append(args.collection_interval + metrics['steps'][-1])
         metrics['episodes'].append(episode)
         metrics['train_rewards'].append(total_reward)
         metrics['train_costs'].append(total_costs)
