@@ -23,7 +23,7 @@ from utils.utils import FreezeParameters, lambda_return, lineplot, write_video, 
 parser = argparse.ArgumentParser(description='CBF-Dreamer')
 parser.add_argument('--algo', type=str, default='cbf-dreamer', help='cbf-dreamer')
 parser.add_argument('--id', type=str, default='default', help='Experiment ID')
-parser.add_argument('--cost_threshold', type=float, default=0.05, help='Threshold to distinguish safe and unsafe region')
+parser.add_argument('--cost_threshold', type=float, default=0.005, help='Threshold to distinguish safe and unsafe region')
 parser.add_argument('--seed', type=int, default=1, metavar='S', help='Random seed')
 parser.add_argument('--disable-cuda', action='store_true', help='Disable CUDA')
 parser.add_argument(
@@ -34,7 +34,7 @@ parser.add_argument(
     help='Safety_GYM_Env',
 )
 parser.add_argument('--eta', type=float, default=1, help='Eta on safety parameter')
-parser.add_argument('--epsilon', type=float, default=1e-1, help='Margin used to find bc')
+parser.add_argument('--epsilon', type=float, default=1e-2, help='Margin used to find bc')
 parser.add_argument('--observation_type', default='rgb_image')
 parser.add_argument('--symbolic-env', action='store_true', help='Symbolic features')
 parser.add_argument('--max-episode-length', type=int, default=1000, metavar='T', help='Max episode length')
@@ -62,11 +62,11 @@ parser.add_argument('--hidden-size', type=int, default=200, metavar='H', help='H
 parser.add_argument('--belief-size', type=int, default=200, metavar='H', help='Belief/hidden size')
 parser.add_argument('--state-size', type=int, default=30, metavar='Z', help='State/latent size')
 parser.add_argument('--action-repeat', type=int, default=2, metavar='R', help='Action repeat')
-parser.add_argument('--action-noise', type=float, default=0.3, metavar='ε', help='Action noise')
+parser.add_argument('--action-noise', type=float, default=0.1, metavar='ε', help='Action noise')
 # Experiment Tuning here
-parser.add_argument('--episodes', type=int, default=1000, metavar='E', help='Total number of episodes')
-parser.add_argument('--seed-episodes', type=int, default=1, metavar='S', help='Seed episodes')
-parser.add_argument('--collect-interval', type=int, default=500, metavar='C', help='Collect interval')
+parser.add_argument('--episodes', type=int, default=500, metavar='E', help='Total number of episodes')
+parser.add_argument('--seed-episodes', type=int, default=3, metavar='S', help='Seed episodes')
+parser.add_argument('--collect-interval', type=int, default=1000, metavar='C', help='Collect interval')
 # Experiment Tuning here
 parser.add_argument('--batch-size', type=int, default=50, metavar='B', help='Batch size')
 parser.add_argument('--chunk-size', type=int, default=50, metavar='L', help='Chunk size')
@@ -100,12 +100,12 @@ parser.add_argument('--global-kl-beta', type=float, default=0, metavar='βg', he
 parser.add_argument('--free-nats', type=float, default=3, metavar='F', help='Free nats')
 parser.add_argument('--bit-depth', type=int, default=5, metavar='B', help='Image bit depth (quantisation)')
 ## Tuning parameters
-parser.add_argument('--model_learning_rate', type=float, default=1e-3, metavar='α', help='Learning rate')
+parser.add_argument('--model_learning_rate', type=float, default=1e-4, metavar='α', help='Learning rate')
 
 parser.add_argument('--value_learning_rate', type=float, default=8e-5, metavar='α', help='Learning rate')
 parser.add_argument('--barrier_learning_rate', type=float, default=8e-4, metavar='α', help='Learning rate')
 parser.add_argument('--controller_learning_rate', type=float, default=1e-3, metavar='α', help='Learning rate')
-parser.add_argument('--cbf_learning_rate', type=float, default=8e-5, metavar='α', help='Learning rate')
+parser.add_argument('--cbf_learning_rate', type=float, default=8e-4, metavar='α', help='Learning rate')
 parser.add_argument(
     '--learning-rate-schedule',
     type=int,
@@ -117,14 +117,14 @@ parser.add_argument('--adam-epsilon', type=float, default=1e-7, metavar='ε', he
 # Note that original has a linear learning rate decay, but it seems unlikely that this makes a significant difference
 parser.add_argument('--grad-clip-norm', type=float, default=100.0, metavar='C', help='Gradient clipping norm')
 
-parser.add_argument('--planning-horizon', type=int, default=10, metavar='H', help='Planning horizon distance')
+parser.add_argument('--planning-horizon', type=int, default=30, metavar='H', help='Planning horizon distance')
 parser.add_argument('--discount', type=float, default=0.99, metavar='H', help='Planning horizon distance')
 parser.add_argument('--disclam', type=float, default=0.95, metavar='H', help='discount rate to compute return')
 parser.add_argument('--optimisation-iters', type=int, default=10, metavar='I', help='Planning optimisation iterations')
 parser.add_argument('--candidates', type=int, default=1000, metavar='J', help='Candidate samples per iteration')
 parser.add_argument('--top-candidates', type=int, default=100, metavar='K', help='Number of top candidates to fit')
 parser.add_argument('--test', action='store_true', help='Test only')
-parser.add_argument('--test-interval', type=int, default=25, metavar='I', help='Test interval (episodes)')
+parser.add_argument('--test-interval', type=int, default=10, metavar='I', help='Test interval (episodes)')
 parser.add_argument('--test-episodes', type=int, default=10, metavar='E', help='Number of test episodes')
 parser.add_argument('--checkpoint-interval', type=int, default=50, metavar='I', help='Checkpoint interval (episodes)')
 parser.add_argument('--checkpoint-experience', action='store_true', help='Checkpoint experience replay')
@@ -555,7 +555,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
             imged_reward = bottle(reward_model, (imged_beliefs, imged_prior_states))
             # print(imged_reward.size())
             value_pred = get_through_NN(value_model, imged_prior_states)
-            print(value_pred.size())
+            # print(value_pred.size())
 
         returns = lambda_return(
             imged_reward, value_pred, bootstrap=value_pred[-1], discount=args.discount, lambda_=args.disclam
@@ -666,10 +666,11 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 break
 
         # Update and plot train reward metrics
-        metrics['steps'].append(t + metrics['steps'][-1])
+        metrics['steps'].append(self.collection_interval + metrics['steps'][-1])
         metrics['episodes'].append(episode)
         metrics['train_rewards'].append(total_reward)
         metrics['train_costs'].append(total_costs)
+        
         lineplot(
             metrics['episodes'][-len(metrics['train_rewards']) :],
             metrics['train_rewards'],
@@ -749,6 +750,13 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
             np.asarray(metrics['steps'])[np.asarray(metrics['test_episodes']) - 1],
             metrics['test_rewards'],
             'test_rewards_steps',
+            results_dir,
+            xaxis='step',
+        )
+        lineplot(
+            np.asarray(metrics['steps'])[np.asarray(metrics['test_episodes']) - 1],
+            metrics['test_costs'],
+            'test_costs_steps',
             results_dir,
             xaxis='step',
         )
