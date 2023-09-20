@@ -62,7 +62,7 @@ parser.add_argument('--hidden-size', type=int, default=200, metavar='H', help='H
 parser.add_argument('--belief-size', type=int, default=200, metavar='H', help='Belief/hidden size')
 parser.add_argument('--state-size', type=int, default=30, metavar='Z', help='State/latent size')
 parser.add_argument('--action-repeat', type=int, default=2, metavar='R', help='Action repeat')
-parser.add_argument('--action-noise', type=float, default=0.1, metavar='ε', help='Action noise')
+parser.add_argument('--action-noise', type=float, default=0.01, metavar='ε', help='Action noise')
 # Experiment Tuning here
 parser.add_argument('--episodes', type=int, default=500, metavar='E', help='Total number of episodes')
 parser.add_argument('--seed-episodes', type=int, default=3, metavar='S', help='Seed episodes')
@@ -102,10 +102,10 @@ parser.add_argument('--bit-depth', type=int, default=5, metavar='B', help='Image
 ## Tuning parameters
 parser.add_argument('--model_learning_rate', type=float, default=1e-4, metavar='α', help='Learning rate')
 
-parser.add_argument('--value_learning_rate', type=float, default=8e-5, metavar='α', help='Learning rate')
+parser.add_argument('--value_learning_rate', type=float, default=4e-4, metavar='α', help='Learning rate')
 parser.add_argument('--barrier_learning_rate', type=float, default=8e-4, metavar='α', help='Learning rate')
 parser.add_argument('--controller_learning_rate', type=float, default=1e-3, metavar='α', help='Learning rate')
-parser.add_argument('--cbf_learning_rate', type=float, default=8e-4, metavar='α', help='Learning rate')
+parser.add_argument('--cbf_learning_rate', type=float, default=4e-4, metavar='α', help='Learning rate')
 parser.add_argument(
     '--learning-rate-schedule',
     type=int,
@@ -180,6 +180,7 @@ print("environment is loaded")
 if args.experience_replay != '' and os.path.exists(args.experience_replay):
     D = torch.load(args.experience_replay)
     metrics['steps'], metrics['episodes'] = [D.steps] * D.episodes, list(range(1, D.episodes + 1))
+    print("experience replay buffer is ready")
 elif not args.test:
     D = ExperienceReplay(
         args.experience_size, args.symbolic_env, env.observation_size, env.action_size, args.bit_depth, args.device
@@ -195,7 +196,7 @@ elif not args.test:
             t += 1
         metrics['steps'].append(t * args.action_repeat + (0 if len(metrics['steps']) == 0 else metrics['steps'][-1]))
         metrics['episodes'].append(s)
-print("experience replay buffer is ready")
+    print("experience replay buffer is ready")
 
 
 # Initialise model parameters randomly
@@ -293,7 +294,7 @@ if args.models != '' and os.path.exists(args.models):
     reward_model.load_state_dict(model_dicts['reward_model'])
     cost_model.load_state_dict(model_dicts['cost_model'])
     encoder.load_state_dict(model_dicts['encoder'])
-    barrier_model.load_state_dict(model_dicts['barrier_model'])
+    # barrier_model.load_state_dict(model_dicts['barrier_model'])
     controller.load_state_dict(model_dicts['controller'])
     value_model.load_state_dict(model_dicts['value_model'])
     model_optimizer.load_state_dict(model_dicts['model_optimizer'])
@@ -339,9 +340,14 @@ def update_belief_and_act(
 if args.test:
     # Set models to eval mode
     transition_model.eval()
+    observation_model.eval()
     reward_model.eval()
     cost_model.eval()
     encoder.eval()
+    # barrier_model.eval()
+    controller.eval()
+    # actor_model.eval()
+    value_model.eval()
     with torch.no_grad():
         total_reward = 0
         for _ in tqdm(range(args.test_episodes)):
@@ -366,12 +372,14 @@ if args.test:
                     explore=False
                 )
                 total_reward += reward
+                total_cost += cost
                 if args.render:
                     env.render()
                 if done:
                     pbar.close()
                     break
     print('Average Reward:', total_reward / args.test_episodes)
+    print('Average Cost:', total_cost / args.test_episodes)
     env.close()
     quit()
 
@@ -666,7 +674,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 break
 
         # Update and plot train reward metrics
-        metrics['steps'].append(args.collection_interval + metrics['steps'][-1])
+        metrics['steps'].append(t + metrics['steps'][-1])
         metrics['episodes'].append(episode)
         metrics['train_rewards'].append(total_reward)
         metrics['train_costs'].append(total_costs)
@@ -806,6 +814,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 'reward_model': reward_model.state_dict(),
                 'encoder': encoder.state_dict(),
                 'cost_model': cost_model.state_dict(),
+                'barrier_model': barrier_model.state_dict(),
                 'controller': controller.state_dict(),
                 # 'actor_model': actor_model.state_dict(),
                 'value_model': value_model.state_dict(),

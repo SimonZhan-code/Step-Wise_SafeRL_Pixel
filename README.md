@@ -8,10 +8,15 @@ To install all dependencies with Anaconda run using the following commands.
 
 `pip install -r requirements.txt` 
 
-## Training (e.g. Safexp-PointGoal0)
+## Training (e.g. Safexp-PointGoal1)
 To run CBF-dreamer
 ```bash
-python bc.py --algo CBF-dreamer --env Safexp-PointGoal0-v0 --action-repeat 2 --id AC-Safexp-PointGoal0-v0-0
+python bc.py --algo CBF-dreamer --env Safexp-PointGoal1-v0 --action-repeat 2 --id {name_of_exp}
+```
+
+## Testing (e.g. Safexp-PointGoal1)
+```bash
+python bc.py --algo CBF-dreamer --env Safexp-PointGoal1-v0 --action-repeat 2 --test -- render --models {.pth_file_load} --id {name_of_exp}
 ```
 
 For best performance with DeepMind Control Suite, try setting environment variable `MUJOCO_GL=egl` (see instructions and details [here](https://github.com/deepmind/dm_control#rendering)).
