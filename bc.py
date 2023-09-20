@@ -350,6 +350,7 @@ if args.test:
     value_model.eval()
     with torch.no_grad():
         total_reward = 0
+        total_cost = 0
         for _ in tqdm(range(args.test_episodes)):
             observation = env.reset()
             belief, posterior_state, action = (
