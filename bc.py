@@ -349,6 +349,7 @@ if args.test:
     with torch.no_grad():
         total_reward = 0
         total_cost = 0
+        total_violation = 0
         for _ in tqdm(range(args.test_episodes)):
             observation = env.reset()
             belief, posterior_state, action = (
@@ -370,6 +371,8 @@ if args.test:
                     observation.to(device=args.device),
                     explore=False
                 )
+                if cost > 0:
+                    total_violation += 1
                 total_reward += reward
                 total_cost += cost
                 if args.render:
@@ -379,6 +382,7 @@ if args.test:
                     break
     print('Average Reward:', total_reward / args.test_episodes)
     print('Average Cost:', total_cost / args.test_episodes)
+    print('Average Violation:', total_violation / args.test_episodes)
     env.close()
     quit()
 
