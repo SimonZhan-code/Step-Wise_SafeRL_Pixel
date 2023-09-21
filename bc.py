@@ -344,9 +344,7 @@ if args.test:
     reward_model.eval()
     cost_model.eval()
     encoder.eval()
-    # barrier_model.eval()
     controller.eval()
-    # actor_model.eval()
     value_model.eval()
     with torch.no_grad():
         total_reward = 0
