@@ -43,6 +43,7 @@ SAFETY_GYM_ENVS = [
     'Safexp-CarPush0-v0',
     'Safexp-CarPush1-v0',
     'Safexp-CarPush2-v0',
+    'Safexp-DoggoGoal1-v0',
 ]
 CONTROL_SUITE_ENVS = [
     'cartpole-balance',

@@ -16,7 +16,7 @@ python bc.py --algo CBF-dreamer --env Safexp-PointGoal1-v0 --action-repeat 2 --i
 
 ## Testing (e.g. Safexp-PointGoal1)
 ```bash
-python bc.py --algo CBF-dreamer --env Safexp-PointGoal1-v0 --action-repeat 2 --test -- render --models {.pth_file_load} --id {name_of_exp}
+python bc.py --algo CBF-dreamer --env Safexp-PointGoal1-v0 --action-repeat 2 --test --render --models {.pth_file_load} --id {name_of_exp}
 ```
 
 For best performance with DeepMind Control Suite, try setting environment variable `MUJOCO_GL=egl` (see instructions and details [here](https://github.com/deepmind/dm_control#rendering)).
