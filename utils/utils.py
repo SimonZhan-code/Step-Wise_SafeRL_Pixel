@@ -133,39 +133,23 @@ def lambda_return(imged_reward, value_pred, bootstrap, discount=0.99, lambda_=0.
     return returns
 
 # Out-dated Barrier Loss Calculation Function 
-def loss_barrier(imged_cost, barrier_pred, COST_THRESHOLD,  _epsilon, _DT = 0.002):
-    safe = True
-    losses = []
-    imged_cost = torch.transpose(imged_cost, 0, 1)
-    barrier_pred = torch.transpose(barrier_pred, 0, 1)
-    # zero = torch.zeros(1, device='cuda', requires_grad = True)
-    for i in range(len(imged_cost)):
-        loss = torch.zeros(1, device='cuda')
-        imged_cost_i = imged_cost[i]
-        barrier_pred_i = barrier_pred[i]
-        for t in range(len(barrier_pred_i)):
-            # loss = 0
-            if t == 0:
-                derivative = 0
-            else:
-                derivative = (barrier_pred_i[t] - barrier_pred_i[t - 1])/_DT
-            # print(imged_cost[t])
-            # print(barrier_pred_i[t].requires_grad, barrier_pred_i[t - 1].requires_grad)
-            if imged_cost_i[t] >= COST_THRESHOLD:
-                safe = False
-            if safe:
-                loss += F.relu(_epsilon - barrier_pred_i[t])
-                loss += F.relu(_epsilon - derivative - barrier_pred_i[t])
-            else:
-                loss += F.relu(barrier_pred_i[t] - _epsilon)
-                loss += F.relu(_epsilon - derivative - barrier_pred_i[t])
-            losses.append(loss)
-            safe = True
-        # print(loss.requires_grad)
-        # print(f'loss grad: {loss.requires_grad}\n')
-        losses.append(loss)       
-    losses = torch.stack(losses, 0)
-    print(f'Losses grad: {losses.requires_grad}\n')
+def barrier_loss_stoch_return(imged_cost, barrier_pred, COST_THRESHOLD,  _epsilon, _DT = 0.02):
+    state_filter_mask = COST_THRESHOLD * torch.ones_like(imged_cost)
+    sigma = 0.01 * torch.ones_like(barrier_pred)
+    # Safe state should be 0 in the unsafe_mask
+    unsafe_mask = F.relu(imged_cost - state_filter_mask)
+    # Unsafe state should be 0 in the safe_mask
+    safe_mask = F.relu(imged_cost - state_filter_mask)
+    # Enforce supermartingale in increasing expectation
+    barrier_after = barrier_pred[1:]
+    diff_expactation = []
+    for i in range(len(barrier_after)):
+        diff_expactation.append(barrier_after[i] - barrier_pred[i])
+    diff_expactation = torch.stack(diff_expactation, 0)
+    supp = torch.zeros((1, barrier_pred.shape[1]), device='cuda')
+    cost_barrier_expectation = torch.cat([supp, diff_expactation])
+    # Enforce the unsafe barrier function value should be larger than 1
+
     return losses
 
 
@@ -205,14 +189,12 @@ def barrier_loss_return(imged_cost, barrier_prev, COST_THRESHOLD, _epsilon, _DT 
     cost_barrier_safe = epsilon_safe_mask - cost_barrier_safe_mask * barrier_prev
     # print(cost_barrier_safe.grad_fn)
     # Ensemble all the cost together
-    loss = 1e2 * cost_barrier_derivative + 1e3 * cost_barrier_safe + 1e5 * cost_barrier_unsafe
-    print(f'safe_cost: {torch.mean(torch.sum(cost_barrier_safe, dim=0))}\n')
-    print(f'unsafe_cost: {torch.mean(torch.sum(cost_barrier_unsafe, dim=0))}\n')
-    print(f'barrier_deriv: {torch.mean(torch.sum(cost_barrier_derivative, dim=0))}\n')
+    loss = 1e2 * cost_barrier_derivative + cost_barrier_safe + cost_barrier_unsafe
+    # print(f'safe_cost: {torch.mean(torch.sum(cost_barrier_safe, dim=0))}\n')
+    # print(f'unsafe_cost: {torch.mean(torch.sum(cost_barrier_unsafe, dim=0))}\n')
+    # print(f'barrier_deriv: {torch.mean(torch.sum(cost_barrier_derivative, dim=0))}\n')
     # print(loss)
     return loss
-
-
 
 
 class ActivateParameters:
