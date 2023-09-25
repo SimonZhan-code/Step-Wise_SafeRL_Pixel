@@ -133,13 +133,15 @@ def lambda_return(imged_reward, value_pred, bootstrap, discount=0.99, lambda_=0.
     return returns
 
 # Out-dated Barrier Loss Calculation Function 
-def barrier_loss_stoch_return(imged_cost, barrier_pred, COST_THRESHOLD,  _epsilon, _DT = 0.02):
+def barrier_loss_stoch_return(imged_cost, barrier_pred, COST_THRESHOLD,  _omega):
     state_filter_mask = COST_THRESHOLD * torch.ones_like(imged_cost)
     sigma = 0.01 * torch.ones_like(barrier_pred)
-    # Safe state should be 0 in the unsafe_mask
+    # Safe state should be 0 in the unsafe_mask, and Unsafe state should be 1
     unsafe_mask = F.relu(imged_cost - state_filter_mask)
-    # Unsafe state should be 0 in the safe_mask
+    cost_barrier_unsafe_mask = unsafe_mask.bool().int()
+    # Unsafe state should be 0 in the safe_mask, and Unsafe state should be 1
     safe_mask = F.relu(imged_cost - state_filter_mask)
+    cost_barrier_safe_mask = safe_mask.bool().int()
     # Enforce supermartingale in increasing expectation
     barrier_after = barrier_pred[1:]
     diff_expactation = []
@@ -149,7 +151,11 @@ def barrier_loss_stoch_return(imged_cost, barrier_pred, COST_THRESHOLD,  _epsilo
     supp = torch.zeros((1, barrier_pred.shape[1]), device='cuda')
     cost_barrier_expectation = torch.cat([supp, diff_expactation])
     # Enforce the unsafe barrier function value should be larger than 1
-
+    unsafe_cost = cost_barrier_unsafe_mask - barrier_pred * cost_barrier_unsafe_mask
+    # Enforce the safe barrier function value should be smaller than eta
+    safe_cost = barrier_pred * cost_barrier_safe_mask - _omega * cost_barrier_safe_mask 
+    # Sum up all the loss
+    losses = cost_barrier_expectation + unsafe_cost + safe_cost
     return losses
 
 
@@ -158,7 +164,7 @@ def barrier_loss_return(imged_cost, barrier_prev, COST_THRESHOLD, _epsilon, _DT 
     # imged_cost = torch.transpose(imged_cost, 0, 1)
     # barrier_prev = torch.transpose(barrier_prev, 0, 1)
     state_filter_mask = COST_THRESHOLD * torch.ones_like(imged_cost)
-    sigma = 0.01 * torch.ones_like(barrier_prev)
+    sigma = 0.0001 * torch.ones_like(barrier_prev)
     # Safe state should be 0 in the unsafe_mask
     unsafe_mask = F.relu(imged_cost - state_filter_mask)
     # Unsafe state should be 0 in the safe_mask
