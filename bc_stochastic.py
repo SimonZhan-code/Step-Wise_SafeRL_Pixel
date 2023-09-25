@@ -15,7 +15,7 @@ from modules.env import CONTROL_SUITE_ENVS, GYM_ENVS, SAFETY_GYM_ENVS, Env, EnvB
 from utils.memory import ExperienceReplay
 from modules.models import Encoder, ObservationModel, RewardModel, TransitionModel, ValueModel, bottle, CostModel, Controller_stoch, get_through_NN
 from modules.planner import MPCPlanner, Controller, BarrierNN
-from utils.utils import FreezeParameters, lambda_return, lineplot, write_video, imagine_ahead, barrier_loss_return
+from utils.utils import FreezeParameters, lambda_return, lineplot, write_video, imagine_ahead, barrier_loss_stoch_return
 
 # _eta = 0.01
 
@@ -584,7 +584,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
 
         controller_return = - torch.mean(torch.sum(returns, dim=0))   
         # barrier_return = barrier_loss_return(imged_cost, imged_barrier, args.cost_threshold, args.epsilon)
-        barrier_return = 0
+        barrier_return = barrier_loss_stoch_return(imged_cost, imged_barrier, args.cost_threshold, 0.1)
         barrier_loss = torch.mean(torch.sum(barrier_return, dim=0))            
         # print(f'barrier_loss: {barrier_loss.item()}\n')
         controller_loss = controller_return + args.eta * barrier_loss
