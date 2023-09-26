@@ -135,7 +135,6 @@ def lambda_return(imged_reward, value_pred, bootstrap, discount=0.99, lambda_=0.
 # Out-dated Barrier Loss Calculation Function 
 def barrier_loss_stoch_return(imged_cost, barrier_pred, COST_THRESHOLD,  _omega):
     state_filter_mask = COST_THRESHOLD * torch.ones_like(imged_cost)
-    sigma = 0.01 * torch.ones_like(barrier_pred)
     # Safe state should be 0 in the unsafe_mask, and Unsafe state should be 1
     unsafe_mask = F.relu(imged_cost - state_filter_mask)
     cost_barrier_unsafe_mask = unsafe_mask.bool().int()

@@ -24,7 +24,7 @@ parser = argparse.ArgumentParser(description='CBF-Dreamer')
 parser.add_argument('--algo', type=str, default='cbf-dreamer', help='cbf-dreamer')
 parser.add_argument('--id', type=str, default='default', help='Experiment ID')
 
-parser.add_argument('--cost_threshold', type=float, default=0.005, help='Threshold to distinguish safe and unsafe region')
+parser.add_argument('--cost_threshold', type=float, default=0.01, help='Threshold to distinguish safe and unsafe region')
 
 parser.add_argument('--seed', type=int, default=1, metavar='S', help='Random seed')
 parser.add_argument('--disable-cuda', action='store_true', help='Disable CUDA')
@@ -64,9 +64,9 @@ parser.add_argument('--hidden-size', type=int, default=200, metavar='H', help='H
 parser.add_argument('--belief-size', type=int, default=200, metavar='H', help='Belief/hidden size')
 parser.add_argument('--state-size', type=int, default=30, metavar='Z', help='State/latent size')
 parser.add_argument('--action-repeat', type=int, default=2, metavar='R', help='Action repeat')
-parser.add_argument('--action-noise', type=float, default=0.2, metavar='ε', help='Action noise')
+parser.add_argument('--action-noise', type=float, default=0.1, metavar='ε', help='Action noise')
 
-parser.add_argument('--episodes', type=int, default=1000, metavar='E', help='Total number of episodes')
+parser.add_argument('--episodes', type=int, default=500, metavar='E', help='Total number of episodes')
 parser.add_argument('--seed-episodes', type=int, default=1, metavar='S', help='Seed episodes')
 parser.add_argument('--collect-interval', type=int, default=1000, metavar='C', help='Training steps of each episode')
 
@@ -564,13 +564,11 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         # Calculate the Barrier loss and Controller loss and update the barrier_model and controller
         # Retrieve imageined safety costs pred
         with FreezeParameters(model_modules):
-            imged_cost = bottle(cost_model, (imged_beliefs, imged_prior_means))
+            imged_cost = bottle(cost_model, (imged_beliefs, imged_prior_states))
                 
         with FreezeParameters(model_modules + value_model.modules):
-            imged_reward = bottle(reward_model, (imged_beliefs, imged_prior_means))
-            # print(imged_reward.size())
-            value_pred = get_through_NN(value_model, imged_prior_means)
-            # print(value_pred.size())
+            imged_reward = bottle(reward_model, (imged_beliefs, imged_prior_states))
+            value_pred = get_through_NN(value_model, imged_prior_states)
 
         returns = lambda_return(
             imged_reward, value_pred, bootstrap=value_pred[-1], discount=args.discount, lambda_=args.disclam
@@ -578,27 +576,15 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
 
         imged_barrier = get_through_NN(barrier_model, imged_prior_means)
 
-        # if torch.equal(imged_barrier, temp):
-        #     print("barrier value is the same")
-        # temp = imged_barrier
-
+        # Get the Barrier Loss and Controller Loss and back-propagate to the barrierNN and controller
         controller_return = - torch.mean(torch.sum(returns, dim=0))   
-        # barrier_return = barrier_loss_return(imged_cost, imged_barrier, args.cost_threshold, args.epsilon)
-        barrier_return = barrier_loss_stoch_return(imged_cost, imged_barrier, args.cost_threshold, 0.1)
+        barrier_return = barrier_loss_stoch_return(imged_cost, imged_barrier, args.cost_threshold, 0.05)
         barrier_loss = torch.mean(torch.sum(barrier_return, dim=0))            
-        # print(f'barrier_loss: {barrier_loss.item()}\n')
         controller_loss = controller_return + args.eta * barrier_loss
         cbf_optimizer.zero_grad()
-        # controller_optimizer.zero_grad()
-       
         controller_loss.backward()
-        
         nn.utils.clip_grad_norm_(cbf_params_list, args.grad_clip_norm, norm_type=2)    
-        # nn.utils.clip_grad_norm_(controller.parameters(), args.grad_clip_norm, norm_type=2)
-        # controller_optimizer.step()
-        
         cbf_optimizer.step()
-        
         
 
         # CBF-Dreamer implementation: value loss calculation and optimization
