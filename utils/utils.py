@@ -154,7 +154,7 @@ def barrier_loss_stoch_return(imged_cost, barrier_pred, COST_THRESHOLD,  _omega)
     # Enforce the safe barrier function value should be smaller than eta
     safe_cost = barrier_pred * cost_barrier_safe_mask - _omega * cost_barrier_safe_mask 
     # Sum up all the loss
-    losses = cost_barrier_expectation + unsafe_cost + safe_cost
+    losses = 0.1*cost_barrier_expectation + unsafe_cost + safe_cost
     return losses
 
 
