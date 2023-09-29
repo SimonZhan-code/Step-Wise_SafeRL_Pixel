@@ -23,7 +23,9 @@ from utils.utils import FreezeParameters, lambda_return, lineplot, write_video, 
 parser = argparse.ArgumentParser(description='CBF-Dreamer')
 parser.add_argument('--algo', type=str, default='cbf-dreamer', help='cbf-dreamer')
 parser.add_argument('--id', type=str, default='default', help='Experiment ID')
-parser.add_argument('--cost_threshold', type=float, default=0.005, help='Threshold to distinguish safe and unsafe region')
+
+parser.add_argument('--cost_threshold', type=float, default=0.01, help='Threshold to distinguish safe and unsafe region')
+
 parser.add_argument('--seed', type=int, default=1, metavar='S', help='Random seed')
 parser.add_argument('--disable-cuda', action='store_true', help='Disable CUDA')
 parser.add_argument(
@@ -62,13 +64,13 @@ parser.add_argument('--hidden-size', type=int, default=200, metavar='H', help='H
 parser.add_argument('--belief-size', type=int, default=200, metavar='H', help='Belief/hidden size')
 parser.add_argument('--state-size', type=int, default=30, metavar='Z', help='State/latent size')
 parser.add_argument('--action-repeat', type=int, default=2, metavar='R', help='Action repeat')
-parser.add_argument('--action-noise', type=float, default=0.01, metavar='ε', help='Action noise')
-# Experiment Tuning here
-parser.add_argument('--episodes', type=int, default=500, metavar='E', help='Total number of episodes')
-parser.add_argument('--seed-episodes', type=int, default=3, metavar='S', help='Seed episodes')
-parser.add_argument('--collect-interval', type=int, default=1000, metavar='C', help='Collect interval')
-# Experiment Tuning here
-parser.add_argument('--batch-size', type=int, default=50, metavar='B', help='Batch size')
+parser.add_argument('--action-noise', type=float, default=0.1, metavar='ε', help='Action noise')
+
+parser.add_argument('--episodes', type=int, default=1000, metavar='E', help='Total number of episodes')
+parser.add_argument('--seed-episodes', type=int, default=5, metavar='S', help='Seed episodes')
+parser.add_argument('--collect-interval', type=int, default=1000, metavar='C', help='Training steps of each episode')
+
+parser.add_argument('--batch-size', type=int, default=32, metavar='B', help='Batch size')
 parser.add_argument('--chunk-size', type=int, default=50, metavar='L', help='Chunk size')
 parser.add_argument(
     '--worldmodel-LogProbLoss',
@@ -99,7 +101,6 @@ parser.add_argument(
 parser.add_argument('--global-kl-beta', type=float, default=0, metavar='βg', help='Global KL weight (0 to disable)')
 parser.add_argument('--free-nats', type=float, default=3, metavar='F', help='Free nats')
 parser.add_argument('--bit-depth', type=int, default=5, metavar='B', help='Image bit depth (quantisation)')
-## Tuning parameters
 parser.add_argument('--model_learning_rate', type=float, default=1e-4, metavar='α', help='Learning rate')
 
 parser.add_argument('--value_learning_rate', type=float, default=4e-4, metavar='α', help='Learning rate')
@@ -124,9 +125,12 @@ parser.add_argument('--optimisation-iters', type=int, default=10, metavar='I', h
 parser.add_argument('--candidates', type=int, default=1000, metavar='J', help='Candidate samples per iteration')
 parser.add_argument('--top-candidates', type=int, default=100, metavar='K', help='Number of top candidates to fit')
 parser.add_argument('--test', action='store_true', help='Test only')
+
 parser.add_argument('--test-interval', type=int, default=10, metavar='I', help='Test interval (episodes)')
-parser.add_argument('--test-episodes', type=int, default=10, metavar='E', help='Number of test episodes')
-parser.add_argument('--checkpoint-interval', type=int, default=50, metavar='I', help='Checkpoint interval (episodes)')
+parser.add_argument('--test-episodes', type=int, default=50, metavar='E', help='Number of test episodes')
+parser.add_argument('--video-interval', type=int, default=100, metavar='VI', help='Interval to write video')
+
+parser.add_argument('--checkpoint-interval', type=int, default=200, metavar='I', help='Checkpoint interval (episodes)')
 parser.add_argument('--checkpoint-experience', action='store_true', help='Checkpoint experience replay')
 parser.add_argument('--models', type=str, default='', metavar='M', help='Load model checkpoint')
 parser.add_argument('--experience-replay', type=str, default='', metavar='ER', help='Load experience replay')
@@ -164,10 +168,10 @@ metrics = {
     'reward_loss': [],
     'cost_loss': [],
     'kl_loss': [],
-    # 'actor_loss': [],
     'barrier_loss': [],
     'controller_loss': [],
     'value_loss': [],
+    'average_violation': [],
 }
 
 summary_name = results_dir + "/{}_{}_log"
@@ -371,7 +375,7 @@ if args.test:
                     observation.to(device=args.device),
                     explore=False
                 )
-                if cost > 0:
+                if cost > args.cost_threshold:
                     total_violation += 1
                 total_reward += reward
                 total_cost += cost
@@ -595,13 +599,6 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         cbf_optimizer.step()
         
         
-        # barrier_optimizer.zero_grad()
-        # barrier_loss.backward()
-        # nn.utils.clip_grad_norm_(barrier_model.parameters(), args.grad_clip_norm, norm_type=2)
-        # barrier_optimizer.step()
-        # print(controller.modules[0].weight.grad)
-        # print(barrier_model.modules[0].weight.grad)
-
 
         # CBF-Dreamer implementation: value loss calculation and optimization
         # Value function network training 
@@ -634,13 +631,13 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     metrics['barrier_loss'].append(losses[4])
     metrics['controller_loss'].append(losses[5])
     metrics['value_loss'].append(losses[6])
-    lineplot(metrics['episodes'][-len(metrics['observation_loss']) :], metrics['observation_loss'], 'observation_loss', results_dir)
-    lineplot(metrics['episodes'][-len(metrics['reward_loss']) :], metrics['reward_loss'], 'reward_loss', results_dir)
-    lineplot(metrics['episodes'][-len(metrics['kl_loss']) :], metrics['kl_loss'], 'kl_loss', results_dir)
-    lineplot(metrics['episodes'][-len(metrics['cost_loss']) :], metrics['cost_loss'], 'cost_loss', results_dir)
-    lineplot(metrics['episodes'][-len(metrics['barrier_loss']) :], metrics['barrier_loss'], 'barrier_loss', results_dir)
-    lineplot(metrics['episodes'][-len(metrics['controller_loss']) :], metrics['controller_loss'], 'controller_loss', results_dir)
-    lineplot(metrics['episodes'][-len(metrics['value_loss']) :], metrics['value_loss'], 'value_loss', results_dir)
+    # lineplot(metrics['episodes'][-len(metrics['observation_loss']) :], metrics['observation_loss'], 'observation_loss', results_dir)
+    # lineplot(metrics['episodes'][-len(metrics['reward_loss']) :], metrics['reward_loss'], 'reward_loss', results_dir)
+    # lineplot(metrics['episodes'][-len(metrics['kl_loss']) :], metrics['kl_loss'], 'kl_loss', results_dir)
+    # lineplot(metrics['episodes'][-len(metrics['cost_loss']) :], metrics['cost_loss'], 'cost_loss', results_dir)
+    # lineplot(metrics['episodes'][-len(metrics['barrier_loss']) :], metrics['barrier_loss'], 'barrier_loss', results_dir)
+    # lineplot(metrics['episodes'][-len(metrics['controller_loss']) :], metrics['controller_loss'], 'controller_loss', results_dir)
+    # lineplot(metrics['episodes'][-len(metrics['value_loss']) :], metrics['value_loss'], 'value_loss', results_dir)
 
     # Data collection
     print("Data collection")
@@ -677,7 +674,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 break
 
         # Update and plot train reward metrics
-        metrics['steps'].append(t + 1 + metrics['steps'][-1])
+        metrics['steps'].append(t + metrics['steps'][-1])
         metrics['episodes'].append(episode)
         metrics['train_rewards'].append(total_reward)
         metrics['train_costs'].append(total_costs)
@@ -706,7 +703,6 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         encoder.eval()
         barrier_model.eval()
         controller.eval()
-        # actor_model.eval()
         value_model.eval()
         # Initialise parallelised test environments
         test_envs = EnvBatcher(
@@ -717,7 +713,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         )
 
         with torch.no_grad():
-            observation, total_rewards, total_costs, video_frames = test_envs.reset(), np.zeros((args.test_episodes,)), np.zeros((args.test_episodes,)), []
+            observation, total_rewards, total_costs, video_frames, total_violation = test_envs.reset(), np.zeros((args.test_episodes,)), np.zeros((args.test_episodes,)), [], 0
             belief, posterior_state, action = (
                 torch.zeros(args.test_episodes, args.belief_size, device=args.device),
                 torch.zeros(args.test_episodes, args.state_size, device=args.device),
@@ -739,7 +735,13 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 )
                 total_rewards += reward.numpy()
                 total_costs += cost.numpy()
-                if not args.symbolic_env:  # Collect real vs. predicted frames for video
+                for i in cost.numpy():
+                    if i > args.cost_threshold:
+                        total_violation += 1
+                    else:
+                        pass
+                
+                if not args.symbolic_env and episode % args.video_interval == 0:  # Collect real vs. predicted frames for video
                     video_frames.append(
                         make_grid(
                             torch.cat([observation, observation_model(belief, posterior_state).cpu()], dim=3) + 0.5,
@@ -752,10 +754,12 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                     break
 
         # Update and plot reward metrics (and write video if applicable) and save metrics
+        metrics['average_violation'].append(total_violation/args.test_episodes)
         metrics['test_episodes'].append(episode)
         metrics['test_rewards'].append(total_rewards.tolist())
         metrics['test_costs'].append(total_costs.tolist())
         lineplot(metrics['test_episodes'], metrics['test_rewards'], 'test_rewards', results_dir)
+        lineplot(metrics['test_episodes'][-len(metrics['average_violation']) :], metrics['average_violation'], 'average_violation', results_dir)
         lineplot(metrics['test_episodes'], metrics['test_costs'], 'test_costs', results_dir)
         lineplot(
             np.asarray(metrics['steps'])[np.asarray(metrics['test_episodes']) - 1],
@@ -771,7 +775,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
             results_dir,
             xaxis='step',
         )
-        if not args.symbolic_env:
+        if not args.symbolic_env and episode % args.video_interval == 0:
             episode_str = str(episode).zfill(len(str(args.episodes)))
             write_video(video_frames, 'test_episode_%s' % episode_str, results_dir)  # Lossy compression
             save_image(
@@ -819,13 +823,9 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 'cost_model': cost_model.state_dict(),
                 'barrier_model': barrier_model.state_dict(),
                 'controller': controller.state_dict(),
-                # 'actor_model': actor_model.state_dict(),
                 'value_model': value_model.state_dict(),
                 'model_optimizer': model_optimizer.state_dict(),
-                # 'cbf_optimizer': cbf_optimizer.state_dict(),
-                'barrier_optimizer': barrier_optimizer.state_dict(),
-                'controller_optimizer': controller_optimizer.state_dict(),
-                # 'actor_optimizer': actor_optimizer.state_dict(),
+                'cbf_optimizer': cbf_optimizer.state_dict(),
                 'value_optimizer': value_optimizer.state_dict(),
             },
             os.path.join(results_dir, 'models_%d.pth' % episode),
