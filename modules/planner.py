@@ -86,18 +86,18 @@ class Controller(jit.ScriptModule):
         self.act_fn = getattr(F, activation_function)
         self.fc1 = nn.Linear(state_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
-        self.fc3 = nn.Linear(hidden_size, hidden_size)
-        self.fc4 = nn.Linear(hidden_size, hidden_size)
+        # self.fc3 = nn.Linear(hidden_size, hidden_size)
+        # self.fc4 = nn.Linear(hidden_size, hidden_size)
         self.fc5 = nn.Linear(hidden_size, action_size)
-        self.modules = [self.fc1, self.fc2, self.fc3, self.fc4, self.fc5]
+        self.modules = [self.fc1, self.fc2, self.fc5]
 
     @jit.script_method
     def forward(self, state):
         x = state
         hidden = self.act_fn(self.fc1(x))
         hidden = self.act_fn(self.fc2(hidden))
-        hidden = self.act_fn(self.fc3(hidden))
-        hidden = self.act_fn(self.fc4(hidden))
+        # hidden = self.act_fn(self.fc3(hidden))
+        # hidden = self.act_fn(self.fc4(hidden))
         action = self.fc5(hidden).squeeze(dim=1)
         return action 
 
@@ -123,3 +123,63 @@ class BarrierNN(jit.ScriptModule):
         hidden = self.act_fn(self.fc3(hidden))
         barrier = self.fc4(hidden).squeeze(dim=1)
         return barrier
+    
+
+class BarrierNN_stoch(jit.ScriptModule):
+
+    def __init__(self, state_size, hidden_size, activation_function='relu'):
+        super().__init__()
+        self.act_fn = getattr(F, activation_function)
+        self.fc1 = nn.Linear(state_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, hidden_size)
+        self.fc4 = nn.Linear(hidden_size, 1)
+        self.modules = [self.fc1, self.fc2, self.fc3, self.fc4]
+
+    @jit.script_method
+    def forward(self, state):
+        x = state
+        hidden = self.act_fn(self.fc1(x))
+        hidden = self.act_fn(self.fc2(hidden))
+        hidden = self.act_fn(self.fc3(hidden))
+        barrier = nn.Sigmoid(self.fc4(hidden)).squeeze(dim=1)
+        return barrier
+    
+
+class TargetSet_Func(jit.ScriptModule):
+    def __init__(self, belief_size, state_size, hidden_size, activation_function='relu'):
+        super().__init__()
+        self.act_fn = getattr(F, activation_function)
+        self.fc1 = nn.Linear(belief_size + state_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, 1)
+        # self.fc4 = nn.Linear(hidden_size, 1)
+        self.modules = [self.fc1, self.fc2, self.fc3]
+
+    @jit.script_method
+    def forward(self, state):
+        x = state
+        hidden = self.act_fn(self.fc1(x))
+        hidden = self.act_fn(self.fc2(hidden))
+        # hidden = self.act_fn(self.fc3(hidden))
+        val = self.fc3(hidden).squeeze(dim=1)
+        return val
+
+class AvoidSet_Func(jit.ScriptModule):
+    def __init__(self, belief_size, state_size, hidden_size, activation_function='relu'):
+        super().__init__()
+        self.act_fn = getattr(F, activation_function)
+        self.fc1 = nn.Linear(belief_size + state_sizee, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, 1)
+        # self.fc4 = nn.Linear(hidden_size, 1)
+        self.modules = [self.fc1, self.fc2, self.fc3]
+
+    @jit.script_method
+    def forward(self, state):
+        x = state
+        hidden = self.act_fn(self.fc1(x))
+        hidden = self.act_fn(self.fc2(hidden))
+        # hidden = self.act_fn(self.fc3(hidden))
+        val = self.fc3(hidden).squeeze(dim=1)
+        return val 

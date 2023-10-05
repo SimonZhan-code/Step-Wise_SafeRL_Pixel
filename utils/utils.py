@@ -154,9 +154,34 @@ def barrier_loss_stoch_return(imged_cost, barrier_pred, COST_THRESHOLD,  _omega)
     # Enforce the safe barrier function value should be smaller than eta
     safe_cost = barrier_pred * cost_barrier_safe_mask - _omega * cost_barrier_safe_mask 
     # Sum up all the loss
-    losses = 0.1*cost_barrier_expectation + unsafe_cost + safe_cost
+    losses = cost_barrier_expectation + unsafe_cost + safe_cost
     return losses
 
+# Reach Set Loss Calculation Function
+def l_loss(imged_reward, imged_l_value, reward_threshold, _epsilon):
+    state_filter_mask = reward_threshold * torch.ones_like(imged_reward)
+    # Target State should be 1 in the target_mask 0 otherwise
+    target_mask = F.relu(imged_reward - state_filter_mask)
+    target_mask = target_mask.bool().int()
+    # l(s) <= 0 for s in reach set
+    epsilon_target_mask = _epsilon * target_mask
+    curr_target_val = imged_l_value * target_mask
+    # Minimum loss value
+    loss = curr_target_val + epsilon_target_mask
+    return loss
+
+# Avoid Set Loss Calculation Function
+def g_loss(imged_cost, imged_g_value, cost_threshold, _epsilon):
+    state_filter_mask = cost_threshold * torch.ones_like(imged_cost)
+    # Avoid State should be 1 in the avoid_mask 0 otherwise
+    avoid_mask = F.relu(imged_cost - state_filter_mask)
+    avoid_mask = avoid_mask.bool().int()
+    # g(s) > 0 for s in avoid set
+    epsilon_avoid_mask = _epsilon * avoid_mask
+    curr_avoid_val = imged_g_value * avoid_mask
+    # Minimum loss value
+    loss = epsilon_avoid_mask - curr_avoid_val
+    return loss
 
 # Tensor Calculation based faster version barrier loss function
 def barrier_loss_return(imged_cost, barrier_prev, COST_THRESHOLD, _epsilon, _DT = 0.02):
@@ -185,20 +210,13 @@ def barrier_loss_return(imged_cost, barrier_prev, COST_THRESHOLD, _epsilon, _DT 
     # print(torch.all(cost_barrier_unsafe_mask>=0))
     epsilon_unsafe_mask = _epsilon * cost_barrier_unsafe_mask
     cost_barrier_unsafe = cost_barrier_unsafe_mask * barrier_prev + epsilon_unsafe_mask
-    # print(torch.all(cost_barrier_unsafe>=0))
-    # print(cost_barrier_unsafe.grad_fn)
     # Unsafe state is 0, correctly categorized safe state is positive, and wrongly categorized safe state is negative
     cost_barrier_safe_mask = torch.div(F.relu(- safe_mask * barrier_prev), barrier_prev+sigma)
     cost_barrier_safe_mask = cost_barrier_safe_mask.bool().int()
     epsilon_safe_mask = _epsilon * cost_barrier_safe_mask
     cost_barrier_safe = epsilon_safe_mask - cost_barrier_safe_mask * barrier_prev
-    # print(cost_barrier_safe.grad_fn)
     # Ensemble all the cost together
     loss = 1e2 * cost_barrier_derivative + cost_barrier_safe + cost_barrier_unsafe
-    # print(f'safe_cost: {torch.mean(torch.sum(cost_barrier_safe, dim=0))}\n')
-    # print(f'unsafe_cost: {torch.mean(torch.sum(cost_barrier_unsafe, dim=0))}\n')
-    # print(f'barrier_deriv: {torch.mean(torch.sum(cost_barrier_derivative, dim=0))}\n')
-    # print(loss)
     return loss
 
 
