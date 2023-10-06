@@ -17,6 +17,7 @@ def bottle(f, x_tuple):
     output = y.view(x_sizes[0][0], x_sizes[0][1], *y_size[1:])
     return output
 
+
 def get_through_NN(f, z):
     z_size = z.size()
     z_tuple = (z, z_size)
@@ -25,6 +26,7 @@ def get_through_NN(f, z):
     y_size = y.size()
     output = y.view(z_size[0], z_size[1], *y_size[1:])
     return output
+
 
 class TransitionModel(jit.ScriptModule):
     __constants__ = ['min_std_dev']
@@ -242,6 +244,26 @@ class ValueModel(jit.ScriptModule):
         return reward
 
 
+class ValueModel_RA(jit.ScriptModule):
+    def __init__(self, belief_size, state_size, hidden_size, activation_function='relu'):
+        super().__init__()
+        self.act_fn = getattr(F, activation_function)
+        self.fc1 = nn.Linear(state_size+belief_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, hidden_size)
+        self.fc4 = nn.Linear(hidden_size, 1)
+        self.modules = [self.fc1, self.fc2, self.fc3, self.fc4]
+
+    @jit.script_method
+    def forward(self, state):
+        x = state
+        hidden = self.act_fn(self.fc1(x))
+        hidden = self.act_fn(self.fc2(hidden))
+        hidden = self.act_fn(self.fc3(hidden))
+        reward = self.fc4(hidden).squeeze(dim=1)
+        return reward
+
+
 class Controller_stoch(jit.ScriptModule):
     def __init__(
         self,
@@ -285,7 +307,61 @@ class Controller_stoch(jit.ScriptModule):
     def get_action(self, state, det=False):
         action_mean, action_std = self.forward(state)
         dist = Normal(action_mean, action_std)
-        # dist = TransformedDistribution(dist, TanhBijector())
+        dist = TransformedDistribution(dist, TanhBijector())
+        dist = torch.distributions.Independent(dist, 1)
+        dist = SampleDist(dist)
+        # return dist.mode()
+        if det:  
+            return dist.mode()
+        else:
+            return dist.rsample()
+        
+
+class Controller_stoch_RA(jit.ScriptModule):
+    def __init__(
+        self,
+        belief_size,
+        state_size,
+        hidden_size,
+        action_size,
+        dist='tanh_normal',
+        activation_function='elu',
+        min_std=1e-4,
+        init_std=5,
+        mean_scale=5,
+    ):
+        super().__init__()
+        self.act_fn = getattr(F, activation_function)
+        self.fc1 = nn.Linear(state_size+belief_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, hidden_size)
+        self.fc4 = nn.Linear(hidden_size, hidden_size)
+        self.fc5 = nn.Linear(hidden_size, 2 * action_size)
+        self.modules = [self.fc1, self.fc2, self.fc3, self.fc4, self.fc5]
+
+        self._dist = dist
+        self._min_std = min_std
+        self._init_std = init_std
+        self._mean_scale = mean_scale
+
+    @jit.script_method
+    def forward(self, state):
+        raw_init_std = torch.log(torch.exp(self._init_std) - 1)
+        hidden = self.act_fn(self.fc1(state))
+        hidden = self.act_fn(self.fc2(hidden))
+        hidden = self.act_fn(self.fc3(hidden))
+        hidden = self.act_fn(self.fc4(hidden))
+        action = self.fc5(hidden).squeeze(dim=1)
+
+        action_mean, action_std_dev = torch.chunk(action, 2, dim=1)
+        action_mean = self._mean_scale * torch.tanh(action_mean / self._mean_scale)
+        action_std = F.softplus(action_std_dev + raw_init_std) + self._min_std
+        return action_mean, action_std
+
+    def get_action(self, state, det=False):
+        action_mean, action_std = self.forward(state)
+        dist = Normal(action_mean, action_std)
+        dist = TransformedDistribution(dist, TanhBijector())
         dist = torch.distributions.Independent(dist, 1)
         dist = SampleDist(dist)
         # return dist.mode()
@@ -409,5 +485,24 @@ class SampleDist:
         return self._dist.sample()
 
 
+class Q_network(jit.ScriptModule):
+    def __init__(self, belief_size, state_size, action_size, hidden_size=512, activation_function='Tanh'):
+        super().__init__()
+        self.act_fn = getattr(F, activation_function)
+        self.fc1 = nn.Linear(belief_size + state_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, hidden_size)
+        self.fc4 = nn.Linear(hidden_size, action_size)
+        self.modules = [self.fc1, self.fc2, self.fc3, self.fc4]
 
-    
+    @jit.script_method
+    def forward(self, state):
+        x = state
+        hidden = self.act_fn(self.fc1(x))
+        hidden = self.act_fn(self.fc2(hidden))
+        hidden = self.act_fn(self.fc3(hidden))
+        value = self.fc4(hidden).squeeze(dim=1)
+        return value
+
+    def get_action(self, state):
+        return self.forward(state)

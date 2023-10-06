@@ -116,6 +116,8 @@ def imagine_ahead(prev_state, prev_belief, policy, transition_model, planning_ho
 def lambda_return(imged_reward, value_pred, bootstrap, discount=0.99, lambda_=0.95):
     # Setting lambda=1 gives a discounted Monte Carlo return.
     # Setting lambda=0 gives a fixed 1-step return.
+    print('value', value_pred.shape)
+    print('reward', imged_reward.shape)
     next_values = torch.cat([value_pred[1:], bootstrap[None]], 0)
     discount_tensor = discount * torch.ones_like(imged_reward)  # pcont
     inputs = imged_reward + discount_tensor * next_values * (1 - lambda_)
@@ -130,6 +132,15 @@ def lambda_return(imged_reward, value_pred, bootstrap, discount=0.99, lambda_=0.
     outputs = torch.stack(outputs, 0)
     returns = outputs
     # print(returns)
+    return returns
+
+
+def reach_avoid_value_return(l_func_val, g_func_val, value_pred, discount=0.999):
+    discount_tensor = discount * torch.ones_like(l_func_val)
+    imged_rewards = (1 - discount) * torch.ones_like(l_func_val) * torch.maximum(l_func_val, g_func_val)
+    # futurestep_value = value_pred[1:]
+    intermediate_minimum = torch.minimum(value_pred, l_func_val)
+    returns = discount_tensor * torch.maximum(g_func_val, intermediate_minimum) + imged_rewards
     return returns
 
 # Out-dated Barrier Loss Calculation Function 
