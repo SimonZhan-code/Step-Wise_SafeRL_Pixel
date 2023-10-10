@@ -67,7 +67,7 @@ parser.add_argument('--action-repeat', type=int, default=2, metavar='R', help='A
 parser.add_argument('--action-noise', type=float, default=0.1, metavar='ε', help='Action noise')
 
 parser.add_argument('--episodes', type=int, default=1000, metavar='E', help='Total number of episodes')
-parser.add_argument('--seed-episodes', type=int, default=5, metavar='S', help='Seed episodes')
+parser.add_argument('--seed-episodes', type=int, default=1, metavar='S', help='Seed episodes')
 parser.add_argument('--collect-interval', type=int, default=1000, metavar='C', help='Training steps of each episode')
 
 parser.add_argument('--batch-size', type=int, default=32, metavar='B', help='Batch size')
@@ -168,8 +168,8 @@ metrics = {
     'reward_loss': [],
     'cost_loss': [],
     'kl_loss': [],
-    'l_loss': [],
-    'g_loss': [],
+    'reach_loss': [],
+    'avoid_loss': [],
     'controller_loss': [],
     'value_loss': [],
     # 'average_violation': [],
@@ -263,8 +263,6 @@ param_list = (
 reach_avoid_list = (
     list(l_func.parameters())
     + list(g_func.parameters())
-    + list(controller.parameters())
-    + list(value_model.parameters())
 )
 
 params_list = param_list + reach_avoid_list
@@ -277,23 +275,23 @@ model_optimizer = optim.Adam(
     param_list, lr=0 if args.learning_rate_schedule != 0 else args.model_learning_rate, eps=args.adam_epsilon
 )
 
-l_optimizer = optim.Adam(
-    l_func.parameters(),
+RA_set_optimizer = optim.Adam(
+    reach_avoid_list,
     lr=0 if args.learning_rate_schedule != 0 else args.l_learning_rate,
     eps=args.adam_epsilon,
 )
 
 controller_optimizer = optim.Adam(
-    barrier_model.parameters(),
+    controller.parameters(),
     lr=0 if args.learning_rate_schedule != 0 else args.controller_learning_rate,
     eps=args.adam_epsilon,
 )
 
-g_optimizer = optim.Adam(
-    g_func.parameters(),
-    lr=0 if args.learning_rate_schedule != 0 else args.g_learning_rate,
-    eps=args.adam_epsilon,
-)
+# g_optimizer = optim.Adam(
+#     g_func.parameters(),
+#     lr=0 if args.learning_rate_schedule != 0 else args.g_learning_rate,
+#     eps=args.adam_epsilon,
+# )
 
 value_optimizer = optim.Adam(
     value_model.parameters(),
@@ -313,8 +311,8 @@ if args.models != '' and os.path.exists(args.models):
     l_func.load_state_dict(model_dicts['l_func'])
     g_func.load_state_dict(model_dicts['g_func'])
     model_optimizer.load_state_dict(model_dicts['model_optimizer'])
-    l_optimizer.load_state_dict(model_dicts['l_optimizer'])
-    g_optimizer.load_state_dict(model_dicts['g_optimizer'])
+    RA_set_optimizer.load_state_dict(model_dicts['RA_set_optimizer'])
+    # g_optimizer.load_state_dict(model_dicts['g_optimizer'])
     controller_optimizer.load_state_dict(model_dicts['controller_optimizer'])
     value_optimizer.load_state_dict(model_dicts['value_optimizer'])
 
@@ -342,7 +340,7 @@ def update_belief_and_act(
     )  # Remove time dimension from belief/state
    
     # # Input state for planner forward and generate action
-    action = planner.get_action(posterior_state)
+    action = planner.get_action(belief, posterior_state)
 
     if explore:
         action = torch.clamp(
@@ -411,6 +409,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     # Model fitting
     losses = []
     model_modules = transition_model.modules + encoder.modules + observation_model.modules + reward_model.modules + cost_model.modules
+    reach_avoid_modules = l_func.modules + g_func.modules
     # cbf_modules = controller.modules + barrier_model.modules
     print("training loop")
     # temp = torch.zeros(1, device=args.device)
@@ -566,7 +565,6 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         with torch.no_grad():
             ra_states = posterior_states.detach()
             ra_beliefs = beliefs.detach()
-        # print(bc_beliefs.size())
 
         with FreezeParameters(model_modules):
             imagination_traj = imagine_ahead(
@@ -582,35 +580,34 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
             imged_cost = bottle(cost_model, (imged_beliefs, imged_prior_states))
             imged_reward = bottle(reward_model, (imged_beliefs, imged_prior_states))
 
-        imged_l_value = bottle(l_func, (imged_beliefs, imged_prior_states))
-        imged_g_value = bottle(g_func, (imged_beliefs, imged_prior_states))
-
+        with torch.no_grad():
+            ra_imged_beliefs = imged_beliefs.detach()
+            ra_imged_prior_states = imged_prior_states.detach()
+            
+        imged_l_value = bottle(l_func, (ra_imged_beliefs, ra_imged_prior_states))
         l_func_loss = l_loss(imged_reward, imged_l_value, args.reward_threshold, args.epsilon)
+        reach_loss = torch.mean(l_func_loss)
+        imged_g_value = bottle(g_func, (ra_imged_beliefs, ra_imged_prior_states))
         g_func_loss = g_loss(imged_cost, imged_g_value, args.cost_threshold, args.epsilon)
+        avoid_loss = torch.mean(g_func_loss)
 
-        l_optimizer.zero_grad()
-        l_func_loss.backward()
-        nn.utils.clip_grad_norm_(l_func.parameters(), args.grad_clip_norm, norm_type=2)
-        l_optimizer.step()
-
-        g_optimizer.zero_grad()
-        g_func_loss.backward()
-        nn.utils.clip_grad_norm_(g_func.parameters(), args.grad_clip_norm, norm_type=2)
-        g_optimizer.step()        
+        reach_avoid_loss = reach_loss + avoid_loss
+        RA_set_optimizer.zero_grad()
+        reach_avoid_loss.backward()
+        nn.utils.clip_grad_norm_(reach_avoid_list, args.grad_clip_norm, norm_type=2)
+        RA_set_optimizer.step() 
 
         # Develop the DQN/policy iteration to train the loss and backward to the network
-        with FreezeParameters(reach_avoid_list):
-            l_func_val = bottle(l_func, (imged_beliefs, imged_prior_states))
-            g_func_val = bottle(g_func, (imged_beliefs, imged_prior_states))
+        with FreezeParameters(reach_avoid_modules):
             value_pred = bottle(value_model, (imged_beliefs, imged_prior_states))
 
-        # returns = lambda_return(
-        #     imged_reward, value_pred, bootstrap=value_pred[-1], discount=args.discount, lambda_=args.disclam
-        # )
-        returns = reach_avoid_value_return
+        
+        with torch.no_grad():
+            l_func_val = imged_l_value.detach()
+            g_func_val = imged_g_value.detach()
 
+        returns = reach_avoid_value_return(l_func_val, g_func_val, value_pred)
         controller_return = torch.mean(torch.sum(returns, dim=0))   
-       
         controller_loss = controller_return 
         controller_optimizer.zero_grad()
         controller_loss.backward()
@@ -636,7 +633,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         # # Store (0) observation loss (1) reward loss (2) KL loss (3) actor loss (4) value loss
        
         losses.append(
-            [observation_loss.item(), reward_loss.item(), cost_loss.item(), kl_loss.item(), controller_loss.item(), value_loss.item()]
+            [observation_loss.item(), reward_loss.item(), cost_loss.item(), kl_loss.item(), reach_loss.item(), avoid_loss.item(), controller_loss.item(), value_loss.item()]
         )
 
     # Update and plot loss metrics
@@ -645,15 +642,13 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     metrics['reward_loss'].append(losses[1])
     metrics['cost_loss'].append(losses[2])
     metrics['kl_loss'].append(losses[3])
-    # metrics['barrier_loss'].append(losses[4])
-    metrics['controller_loss'].append(losses[5])
-    metrics['value_loss'].append(losses[6])
-    # lineplot(metrics['episodes'][-len(metrics['observation_loss']) :], metrics['observation_loss'], 'observation_loss', results_dir)
-    # lineplot(metrics['episodes'][-len(metrics['reward_loss']) :], metrics['reward_loss'], 'reward_loss', results_dir)
-    # lineplot(metrics['episodes'][-len(metrics['kl_loss']) :], metrics['kl_loss'], 'kl_loss', results_dir)
-    # lineplot(metrics['episodes'][-len(metrics['cost_loss']) :], metrics['cost_loss'], 'cost_loss', results_dir)
-    # lineplot(metrics['episodes'][-len(metrics['barrier_loss']) :], metrics['barrier_loss'], 'barrier_loss', results_dir)
-    # lineplot(metrics['episodes'][-len(metrics['controller_loss']) :], metrics['controller_loss'], 'controller_loss', results_dir)
+    metrics['reach_loss'].append(losses[4])
+    metrics['avoid_loss'].append(losses[5])
+    metrics['controller_loss'].append(losses[6])
+    metrics['value_loss'].append(losses[7])
+
+    lineplot(metrics['episodes'][-len(metrics['reach_loss']) :], metrics['reach_loss'], 'reach_loss', results_dir)
+    lineplot(metrics['episodes'][-len(metrics['avoid_loss']) :], metrics['avoid_loss'], 'avoid_loss', results_dir)
     lineplot(metrics['episodes'][-len(metrics['value_loss']) :], metrics['value_loss'], 'value_loss', results_dir)
 
     # Data collection
@@ -718,7 +713,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         reward_model.eval()
         cost_model.eval()
         encoder.eval()
-        barrier_model.eval()
+        l_func.eval()
+        g_func.eval()
         controller.eval()
         value_model.eval()
         # Initialise parallelised test environments
@@ -806,6 +802,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         reward_model.train()
         cost_model.train()
         controller.train()
+        l_func.train()
+        g_func.train()
         encoder.train()
         value_model.train()
         # Close test environments
@@ -818,9 +816,9 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     writer.add_scalar("reward_loss", metrics['reward_loss'][0][-1], metrics['steps'][-1])
     writer.add_scalar("cost_loss", metrics['cost_loss'][0][-1], metrics['steps'][-1])
     writer.add_scalar("kl_loss", metrics['kl_loss'][0][-1], metrics['steps'][-1])
-    writer.add_scalar("barrier_loss", metrics['barrier_loss'][0][-1], metrics['steps'][-1])
+    writer.add_scalar("reach_loss", metrics['reach_loss'][0][-1], metrics['steps'][-1])
+    writer.add_scalar("avoid_loss", metrics['avoid_loss'][0][-1], metrics['steps'][-1])
     writer.add_scalar("controller_loss", metrics['controller_loss'][0][-1], metrics['steps'][-1])
-    # writer.add_scalar("actor_loss", metrics['actor_loss'][0][-1], metrics['steps'][-1])
     writer.add_scalar("value_loss", metrics['value_loss'][0][-1], metrics['steps'][-1])
     print(
         "episodes: {}, total_steps: {}, train_reward: {}, train_cost: {}".format(
@@ -837,11 +835,12 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 'reward_model': reward_model.state_dict(),
                 'encoder': encoder.state_dict(),
                 'cost_model': cost_model.state_dict(),
-                'barrier_model': barrier_model.state_dict(),
+                'l_func': l_func.state_dict(),
+                'g_func': g_func.state_dict(),
                 'controller': controller.state_dict(),
                 'value_model': value_model.state_dict(),
                 'model_optimizer': model_optimizer.state_dict(),
-                'cbf_optimizer': cbf_optimizer.state_dict(),
+                'reach_avoid_optimizer': RA_set_optimizer.state_dict(),
                 'value_optimizer': value_optimizer.state_dict(),
             },
             os.path.join(results_dir, 'models_%d.pth' % episode),

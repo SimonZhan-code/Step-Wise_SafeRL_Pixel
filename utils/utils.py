@@ -92,7 +92,8 @@ def imagine_ahead(prev_state, prev_belief, policy, transition_model, planning_ho
     # Loop over time sequence
     for t in range(T - 1):
         _state = prior_states[t]
-        actions = policy.get_action(_state.detach())
+        # actions = policy.get_action(_state.detach())
+        actions = policy.get_action(beliefs[t].detach(), _state.detach())
         # Compute belief (deterministic hidden state)
         hidden = transition_model.act_fn(transition_model.fc_embed_state_action(torch.cat([_state, actions], dim=1)))
         beliefs[t + 1] = transition_model.rnn(hidden, beliefs[t])
@@ -116,8 +117,8 @@ def imagine_ahead(prev_state, prev_belief, policy, transition_model, planning_ho
 def lambda_return(imged_reward, value_pred, bootstrap, discount=0.99, lambda_=0.95):
     # Setting lambda=1 gives a discounted Monte Carlo return.
     # Setting lambda=0 gives a fixed 1-step return.
-    print('value', value_pred.shape)
-    print('reward', imged_reward.shape)
+    # print('value', value_pred.shape)
+    # print('reward', imged_reward.shape)
     next_values = torch.cat([value_pred[1:], bootstrap[None]], 0)
     discount_tensor = discount * torch.ones_like(imged_reward)  # pcont
     inputs = imged_reward + discount_tensor * next_values * (1 - lambda_)

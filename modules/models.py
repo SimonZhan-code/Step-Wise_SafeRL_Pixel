@@ -255,8 +255,8 @@ class ValueModel_RA(jit.ScriptModule):
         self.modules = [self.fc1, self.fc2, self.fc3, self.fc4]
 
     @jit.script_method
-    def forward(self, state):
-        x = state
+    def forward(self, belief, state):
+        x = torch.cat([belief, state], dim=1)
         hidden = self.act_fn(self.fc1(x))
         hidden = self.act_fn(self.fc2(hidden))
         hidden = self.act_fn(self.fc3(hidden))
@@ -273,8 +273,8 @@ class Controller_stoch(jit.ScriptModule):
         dist='tanh_normal',
         activation_function='elu',
         min_std=1e-4,
-        init_std=5,
-        mean_scale=5,
+        init_std=2,
+        mean_scale=2,
     ):
         super().__init__()
         self.act_fn = getattr(F, activation_function)
@@ -345,9 +345,10 @@ class Controller_stoch_RA(jit.ScriptModule):
         self._mean_scale = mean_scale
 
     @jit.script_method
-    def forward(self, state):
+    def forward(self,  belief, state):
         raw_init_std = torch.log(torch.exp(self._init_std) - 1)
-        hidden = self.act_fn(self.fc1(state))
+        x = torch.cat([belief, state], dim=1)
+        hidden = self.act_fn(self.fc1(x))
         hidden = self.act_fn(self.fc2(hidden))
         hidden = self.act_fn(self.fc3(hidden))
         hidden = self.act_fn(self.fc4(hidden))
@@ -358,8 +359,8 @@ class Controller_stoch_RA(jit.ScriptModule):
         action_std = F.softplus(action_std_dev + raw_init_std) + self._min_std
         return action_mean, action_std
 
-    def get_action(self, state, det=False):
-        action_mean, action_std = self.forward(state)
+    def get_action(self, belief, state, det=False):
+        action_mean, action_std = self.forward(belief, state)
         dist = Normal(action_mean, action_std)
         dist = TransformedDistribution(dist, TanhBijector())
         dist = torch.distributions.Independent(dist, 1)
