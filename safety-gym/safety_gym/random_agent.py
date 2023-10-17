@@ -22,7 +22,7 @@ def run_random(env_name):
         obs, reward, done, info = env.step(act)
         # print('reward', reward)
         ep_ret += reward
-        ep_cost += info.get('cost_hazards', 0)
+        ep_cost += info.get('cost', 0)
         print('Current Cost: %.3f'%(ep_cost))
         env.render()
 
