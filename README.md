@@ -30,8 +30,8 @@ Use Tensorboard to monitor the training.
 ## Samples
 Shown here are videos of example after BF training on some of the SafetyGym Environments. The left-hand-side show the observation and the right-hand-side show reconstruction.
 
-<img height="150" src="./imgs/PointGoal1.gif"><img height="150" src="./imgs/CarGoal1.gif"><img height="150" src="./imgs/PointGoal2.gif">
-<img height="150" src="./imgs/PointPush1.gif">
+<img height="135" src="./imgs/PointGoal1.gif"><img height="135" src="./imgs/CarGoal1.gif"><img height="135" src="./imgs/PointGoal2.gif">
+<img height="135" src="./imgs/PointPush1.gif">
 <!-- (Note! Tested once using seed 0.)
 
 * [State-SAC](https://github.com/denisyarats/pytorch_sac)
