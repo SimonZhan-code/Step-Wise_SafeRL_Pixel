@@ -31,7 +31,7 @@ Use Tensorboard to monitor the training.
 Shown here are videos of example after BF training on some of the SafetyGym Environments. The left-hand-side show the observation and the right-hand-side show image after reconstruction.
 
 <img height="135" src="./imgs/PointGoal1.gif"><img height="135" src="./imgs/CarGoal1.gif"><img height="135" src="./imgs/PointGoal2.gif">
-<img height="135" src="./imgs/PointPush1.gif"><img height="135" src="./imgs/DoggoGoal1.gif"><img height="135" src="./imgs/PointButton1.gif">
+<!-- <img height="135" src="./imgs/PointPush1.gif"><img height="135" src="./imgs/DoggoGoal1.gif"><img height="135" src="./imgs/PointButton1.gif"> -->
 
 
 <!-- (Note! Tested once using seed 0.)
