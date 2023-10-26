@@ -27,9 +27,12 @@ Use Tensorboard to monitor the training.
 
 `tensorboard --logdir results`
 
-<!-- ## Results
-The performances are compared with the other SoTA algorithms as follows 
-(Note! Tested once using seed 0.)
+## Samples
+Shown here are videos of example after BF training on some of the SafetyGym Environments. The left-hand-side show the observation and the right-hand-side show reconstruction.
+
+<img height="128" src="./imgs/PointGoal1.gif"><img height="128" src="./imgs/CarGoal1.gif"><img height="128" src="./imgs/PointGoal2.gif">
+<img height="128" src="./imgs/PointPush1.gif">
+<!-- (Note! Tested once using seed 0.)
 
 * [State-SAC](https://github.com/denisyarats/pytorch_sac)
 * [PlaNet-PyTorch](https://github.com/Kaixhin/PlaNet)
@@ -43,17 +46,12 @@ The performances are compared with the other SoTA algorithms as follows
 <p align="center">
   <img width="800" src="./imgs/results_table.png">
 </p>
+ -->
+<!-- <p align="center">
+  <img height="128" src="./imgs/PointPush1.gif">
+</p> -->
 
-<p align="center">
-  <img width="800" src="./imgs/finger-spin.png">
-  <img width="800" src="./imgs/walker-walk.png">
-  <img width="800" src="./imgs/cheetah-run.png">
-  <img width="800" src="./imgs/cartpole-swingup.png">
-  <img width="800" src="./imgs/reacher-easy.png">
-  <img width="800" src="./imgs/ball_in_cup-catch.png">
-</p>
-
-Pretrained models can be found in the [releases](https://github.com/Kaixhin/PlaNet/releases). -->
+<!-- Pretrained models can be found in the [releases](https://github.com/Kaixhin/PlaNet/releases). -->
 
 ## Links
 - [pytorch implementation of Dreamer](https://github.com/yusukeurakami/dreamer-pytorch)
