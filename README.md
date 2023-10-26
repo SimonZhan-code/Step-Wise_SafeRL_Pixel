@@ -8,6 +8,8 @@ To install all dependencies with Anaconda run using the following commands.
 
 `pip install -r requirements.txt` 
 
+To install the safety_gym library, please visit the following site [here](https://github.com/openai/safety-gym).
+
 ## Training (e.g. Safexp-PointGoal1)
 To run CBF-dreamer
 ```bash
