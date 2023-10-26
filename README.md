@@ -28,7 +28,7 @@ Use Tensorboard to monitor the training.
 `tensorboard --logdir results`
 
 ## Samples
-Shown here are videos of example after BF training on some of the SafetyGym Environments. The left-hand-side show the observation and the right-hand-side show reconstruction.
+Shown here are videos of example after BF training on some of the SafetyGym Environments. The left-hand-side show the observation and the right-hand-side show image after reconstruction.
 
 <img height="135" src="./imgs/PointGoal1.gif"><img height="135" src="./imgs/CarGoal1.gif"><img height="135" src="./imgs/PointGoal2.gif">
 <img height="135" src="./imgs/PointPush1.gif">
