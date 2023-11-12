@@ -1,4 +1,4 @@
-Step-wise Safe Reinforcement Learning with Pixel Observations
+Step-wise Safe RL with Pixel Observations
 ======
 
 ## Samples
