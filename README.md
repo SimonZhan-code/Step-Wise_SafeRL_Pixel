@@ -8,7 +8,7 @@ To install all dependencies with Anaconda run using the following commands.
 
 `pip install -r requirements.txt` 
 
-To install the safety_gym library, please visit the following site [here](https://github.com/openai/safety-gym).
+To install the safety_gym library, please use the accomodated safety_gym package provided.
 
 ## Training (e.g. Safexp-PointGoal1)
 To run CBF-dreamer
@@ -31,7 +31,7 @@ Use Tensorboard to monitor the training.
 Shown here are videos of example after BF training on some of the SafetyGym Environments. The left-hand-side show the observation and the right-hand-side show image after reconstruction.
 
 <img height="135" src="./imgs/PointGoal1.gif"><img height="135" src="./imgs/CarGoal1.gif"><img height="135" src="./imgs/PointGoal2.gif">
-<!-- <img height="135" src="./imgs/PointPush1.gif"><img height="135" src="./imgs/DoggoGoal1.gif"><img height="135" src="./imgs/PointButton1.gif"> -->
+<img height="135" src="./imgs/PointPush1.gif"><img height="135" src="./imgs/DoggoGoal1.gif"><img height="135" src="./imgs/PointButton1.gif">
 
 
 <!-- (Note! Tested once using seed 0.)
