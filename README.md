@@ -1,6 +1,24 @@
 CBF Dreamer implementation in PyTorch
 ======
 
+## Samples
+Shown here are videos of example after BF training on some of the SafetyGym Environments. The left-hand-side show the observation and the right-hand-side show image after reconstruction.
+
+<img height="135" src="./imgs/PointGoal1.gif"><img height="135" src="./imgs/CarGoal1.gif"><img height="135" src="./imgs/PointGoal2.gif">
+<img height="135" src="./imgs/PointPush1.gif"><img height="135" src="./imgs/DoggoGoal1.gif"><img height="135" src="./imgs/PointButton1.gif">
+
+
+## ArXiv
+The arXiv version of the paper can be accessed from [this link](https://arxiv.org/abs/2311.02227). 
+```bibtex
+@article{zhan2023state,
+  title={State-wise Safe Reinforcement Learning With Pixel Observations},
+  author={Zhan, Simon Sinong and Wang, Yixuan and Wu, Qingyuan and Jiao, Ruochen and Huang, Chao and Zhu, Qi},
+  journal={arXiv preprint arXiv:2311.02227},
+  year={2023}
+}
+```
+
 ## Installation
 To install all dependencies with Anaconda run using the following commands. 
 
@@ -27,44 +45,7 @@ Use Tensorboard to monitor the training.
 
 `tensorboard --logdir results`
 
-## Samples
-Shown here are videos of example after BF training on some of the SafetyGym Environments. The left-hand-side show the observation and the right-hand-side show image after reconstruction.
 
-<img height="135" src="./imgs/PointGoal1.gif"><img height="135" src="./imgs/CarGoal1.gif"><img height="135" src="./imgs/PointGoal2.gif">
-<img height="135" src="./imgs/PointPush1.gif"><img height="135" src="./imgs/DoggoGoal1.gif"><img height="135" src="./imgs/PointButton1.gif">
-
-
-<!-- (Note! Tested once using seed 0.)
-
-* [State-SAC](https://github.com/denisyarats/pytorch_sac)
-* [PlaNet-PyTorch](https://github.com/Kaixhin/PlaNet)
-* [SAC-AE](https://github.com/denisyarats/pytorch_sac_ae)
-* [SLAC](https://github.com/ku2482/slac.pytorch)
-* [CURL](https://github.com/MishaLaskin/curl)
-* [Dreamer (tensorflow2 implementation)](https://github.com/danijar/dreamer)
-
-### NOTE! All the steps below are environment steps. (All the results below are trained 1000 episodes. Each espisode length is 1000 steps. Actual number of sampled data are steps/action_repeat. )
-
-<p align="center">
-  <img width="800" src="./imgs/results_table.png">
-</p>
- -->
-<!-- <p align="center">
-  <img height="128" src="./imgs/PointPush1.gif">
-</p> -->
-
-<!-- Pretrained models can be found in the [releases](https://github.com/Kaixhin/PlaNet/releases). -->
-
-## ArXiv
-The arXiv version of the paper can be accessed from [this link](https://arxiv.org/abs/2311.02227). 
-```bibtex
-@article{zhan2023state,
-  title={State-wise Safe Reinforcement Learning With Pixel Observations},
-  author={Zhan, Simon Sinong and Wang, Yixuan and Wu, Qingyuan and Jiao, Ruochen and Huang, Chao and Zhu, Qi},
-  journal={arXiv preprint arXiv:2311.02227},
-  year={2023}
-}
-```
 
 ## Links
 - [pytorch implementation of Dreamer](https://github.com/yusukeurakami/dreamer-pytorch)
