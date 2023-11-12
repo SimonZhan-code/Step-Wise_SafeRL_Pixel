@@ -18,7 +18,7 @@ from modules.planner import MPCPlanner, Controller, BarrierNN
 from utils.utils import FreezeParameters, lambda_return, lineplot, write_video, imagine_ahead, barrier_loss_return
 
 # _eta = 0.01
-
+VIOLATION = 0
 # Hyperparameters
 parser = argparse.ArgumentParser(description='CBF-Dreamer')
 parser.add_argument('--algo', type=str, default='cbf-dreamer', help='cbf-dreamer')
@@ -26,7 +26,7 @@ parser.add_argument('--id', type=str, default='default', help='Experiment ID')
 
 parser.add_argument('--cost_threshold', type=float, default=0.01, help='Threshold to distinguish safe and unsafe region')
 
-parser.add_argument('--seed', type=int, default=1, metavar='S', help='Random seed')
+parser.add_argument('--seed', type=int, default=3, metavar='S', help='Random seed')
 parser.add_argument('--disable-cuda', action='store_true', help='Disable CUDA')
 parser.add_argument(
     '--env',
@@ -67,7 +67,7 @@ parser.add_argument('--action-repeat', type=int, default=2, metavar='R', help='A
 parser.add_argument('--action-noise', type=float, default=0.1, metavar='ε', help='Action noise')
 
 parser.add_argument('--episodes', type=int, default=1000, metavar='E', help='Total number of episodes')
-parser.add_argument('--seed-episodes', type=int, default=5, metavar='S', help='Seed episodes')
+parser.add_argument('--seed-episodes', type=int, default=8, metavar='S', help='Seed episodes')
 parser.add_argument('--collect-interval', type=int, default=1000, metavar='C', help='Training steps of each episode')
 
 parser.add_argument('--batch-size', type=int, default=32, metavar='B', help='Batch size')
@@ -101,12 +101,12 @@ parser.add_argument(
 parser.add_argument('--global-kl-beta', type=float, default=0, metavar='βg', help='Global KL weight (0 to disable)')
 parser.add_argument('--free-nats', type=float, default=3, metavar='F', help='Free nats')
 parser.add_argument('--bit-depth', type=int, default=5, metavar='B', help='Image bit depth (quantisation)')
-parser.add_argument('--model_learning_rate', type=float, default=1e-4, metavar='α', help='Learning rate')
+parser.add_argument('--model_learning_rate', type=float, default=1e-5, metavar='α', help='Learning rate')
 
-parser.add_argument('--value_learning_rate', type=float, default=4e-4, metavar='α', help='Learning rate')
+parser.add_argument('--value_learning_rate', type=float, default=8e-5, metavar='α', help='Learning rate')
 parser.add_argument('--barrier_learning_rate', type=float, default=8e-4, metavar='α', help='Learning rate')
 parser.add_argument('--controller_learning_rate', type=float, default=1e-3, metavar='α', help='Learning rate')
-parser.add_argument('--cbf_learning_rate', type=float, default=4e-4, metavar='α', help='Learning rate')
+parser.add_argument('--cbf_learning_rate', type=float, default=8e-5, metavar='α', help='Learning rate')
 parser.add_argument(
     '--learning-rate-schedule',
     type=int,
@@ -127,7 +127,7 @@ parser.add_argument('--top-candidates', type=int, default=100, metavar='K', help
 parser.add_argument('--test', action='store_true', help='Test only')
 
 parser.add_argument('--test-interval', type=int, default=10, metavar='I', help='Test interval (episodes)')
-parser.add_argument('--test-episodes', type=int, default=50, metavar='E', help='Number of test episodes')
+parser.add_argument('--test-episodes', type=int, default=10, metavar='E', help='Number of test episodes')
 parser.add_argument('--video-interval', type=int, default=100, metavar='VI', help='Interval to write video')
 
 parser.add_argument('--checkpoint-interval', type=int, default=200, metavar='I', help='Checkpoint interval (episodes)')
@@ -172,6 +172,7 @@ metrics = {
     'controller_loss': [],
     'value_loss': [],
     'average_violation': [],
+    'accumulate_violation': [],
 }
 
 summary_name = results_dir + "/{}_{}_log"
@@ -551,7 +552,6 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         with torch.no_grad():
             bc_states = posterior_states.detach()
             bc_beliefs = beliefs.detach()
-        # print(bc_beliefs.size())
 
         with FreezeParameters(model_modules):
             imagination_traj = imagine_ahead(
@@ -559,7 +559,6 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
             )
             
         imged_beliefs, imged_prior_states, imged_prior_means, imged_prior_std_devs = imagination_traj
-        # print(imged_prior_states.size())
         
         # Calculate the Barrier loss and Controller loss and update the barrier_model and controller
         # Retrieve imageined safety costs pred
@@ -568,38 +567,22 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 
         with FreezeParameters(model_modules + value_model.modules):
             imged_reward = bottle(reward_model, (imged_beliefs, imged_prior_states))
-            # print(imged_reward.size())
             value_pred = get_through_NN(value_model, imged_prior_states)
-            # print(value_pred.size())
 
         returns = lambda_return(
             imged_reward, value_pred, bootstrap=value_pred[-1], discount=args.discount, lambda_=args.disclam
         )
 
         imged_barrier = get_through_NN(barrier_model, imged_prior_states)
-
-        # if torch.equal(imged_barrier, temp):
-        #     print("barrier value is the same")
-        # temp = imged_barrier
-
         controller_return = - torch.mean(torch.sum(returns, dim=0))   
         barrier_return = barrier_loss_return(imged_cost, imged_barrier, args.cost_threshold, args.epsilon)
         barrier_loss = torch.mean(torch.sum(barrier_return, dim=0))            
-        # print(f'barrier_loss: {barrier_loss.item()}\n')
         controller_loss = controller_return + args.eta * barrier_loss
         cbf_optimizer.zero_grad()
-        # controller_optimizer.zero_grad()
-       
         controller_loss.backward()
-        
         nn.utils.clip_grad_norm_(cbf_params_list, args.grad_clip_norm, norm_type=2)    
-        # nn.utils.clip_grad_norm_(controller.parameters(), args.grad_clip_norm, norm_type=2)
-        # controller_optimizer.step()
-        
         cbf_optimizer.step()
         
-        
-
         # CBF-Dreamer implementation: value loss calculation and optimization
         # Value function network training 
         with torch.no_grad():
@@ -642,7 +625,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     # Data collection
     print("Data collection")
     with torch.no_grad():
-        observation, total_reward, total_costs = env.reset(), 0, 0
+        observation, total_reward, total_costs, total_violation = env.reset(), 0, 0, 0
         belief, posterior_state, action = (
             torch.zeros(1, args.belief_size, device=args.device),
             torch.zeros(1, args.state_size, device=args.device),
@@ -650,7 +633,6 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         )
         pbar = tqdm(range(args.max_episode_length // args.action_repeat))
         for t in pbar:
-            # print("step",t)
             belief, posterior_state, action, next_observation, reward, done, cost = update_belief_and_act(
                 args,
                 env,
@@ -666,6 +648,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
             D.append(observation, action.cpu(), reward, done, cost)
             total_reward += reward
             total_costs += cost
+            if cost > args.cost_threshold:
+                    VIOLATION += 1
             observation = next_observation
             # if args.render:
             #     env.render()
@@ -674,7 +658,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 break
 
         # Update and plot train reward metrics
-        metrics['steps'].append(t + metrics['steps'][-1])
+        metrics['steps'].append(t + 1 + metrics['steps'][-1])
         metrics['episodes'].append(episode)
         metrics['train_rewards'].append(total_reward)
         metrics['train_costs'].append(total_costs)
@@ -756,6 +740,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         # Update and plot reward metrics (and write video if applicable) and save metrics
         metrics['average_violation'].append(total_violation/args.test_episodes)
         metrics['test_episodes'].append(episode)
+        metrics['accumulate_violation'].append(VIOLATION)
         metrics['test_rewards'].append(total_rewards.tolist())
         metrics['test_costs'].append(total_costs.tolist())
         lineplot(metrics['test_episodes'], metrics['test_rewards'], 'test_rewards', results_dir)
