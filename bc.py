@@ -305,7 +305,7 @@ if args.models != '' and os.path.exists(args.models):
     model_optimizer.load_state_dict(model_dicts['model_optimizer'])
 
 
-print("CBF-Dreamer")
+print("Step-wise SafeRL Pixel")
 
 global_prior = Normal(
     torch.zeros(args.batch_size, args.state_size, device=args.device),

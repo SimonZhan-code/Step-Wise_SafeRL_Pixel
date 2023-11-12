@@ -22,9 +22,13 @@ The arXiv version of the paper can be accessed from [this link](https://arxiv.or
 ## Installation
 To install all dependencies with Anaconda run using the following commands. 
 
-`conda create -n CBF-dreamer python==3.8` 
+```
+conda create -n SafeRL_Pixel python==3.8
+``` 
 
-`pip install -r requirements.txt` 
+```
+pip install -r requirements.txt
+```
 
 To install the safety_gym library, please use the accomodated safety_gym package provided.
 
