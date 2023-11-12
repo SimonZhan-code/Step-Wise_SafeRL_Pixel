@@ -1,4 +1,4 @@
-CBF Dreamer implementation in PyTorch
+Step-wise Safe Reinforcement Learning with Pixel Observations
 ======
 
 ## Samples
