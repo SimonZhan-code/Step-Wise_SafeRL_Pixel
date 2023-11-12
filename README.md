@@ -56,15 +56,15 @@ Shown here are videos of example after BF training on some of the SafetyGym Envi
 <!-- Pretrained models can be found in the [releases](https://github.com/Kaixhin/PlaNet/releases). -->
 
 ## ArXiv
-The arXiv version of the paper can be accessed from [this link]{https://arxiv.org/abs/2311.02227}. 
-`
+The arXiv version of the paper can be accessed from [this link](https://arxiv.org/abs/2311.02227). 
+```bibtex
 @article{zhan2023state,
   title={State-wise Safe Reinforcement Learning With Pixel Observations},
   author={Zhan, Simon Sinong and Wang, Yixuan and Wu, Qingyuan and Jiao, Ruochen and Huang, Chao and Zhu, Qi},
   journal={arXiv preprint arXiv:2311.02227},
   year={2023}
 }
-`
+```
 
 ## Links
 - [pytorch implementation of Dreamer](https://github.com/yusukeurakami/dreamer-pytorch)
