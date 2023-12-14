@@ -52,5 +52,4 @@ Use Tensorboard to monitor the training.
 
 
 ## Links
-- [pytorch implementation of Dreamer](https://github.com/yusukeurakami/dreamer-pytorch)
 - [RSSM elaboration](https://arxiv.org/abs/1811.04551)
