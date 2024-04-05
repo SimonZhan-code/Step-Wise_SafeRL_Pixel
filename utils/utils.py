@@ -92,8 +92,8 @@ def imagine_ahead(prev_state, prev_belief, policy, transition_model, planning_ho
     # Loop over time sequence
     for t in range(T - 1):
         _state = prior_states[t]
-        # actions = policy.get_action(_state.detach())
-        actions = policy.get_action(beliefs[t].detach(), _state.detach())
+        actions = policy.get_action(_state.detach())
+        # actions = policy.get_action(beliefs[t].detach(), _state.detach())
         # Compute belief (deterministic hidden state)
         hidden = transition_model.act_fn(transition_model.fc_embed_state_action(torch.cat([_state, actions], dim=1)))
         beliefs[t + 1] = transition_model.rnn(hidden, beliefs[t])
